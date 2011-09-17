@@ -1,5 +1,7 @@
 (ns ranguages.core
-  (:refer-clojure :exclude [contains? reverse]))
+  (:require [ranguages.regex-parser :as rrp])
+  (:refer-clojure :exclude [contains? reverse])
+  (:require [clojure.walk :as wk]))
 
 (defprotocol IRanguage
   (contains?     [r s] "returns true if the language contains the string/seq")
@@ -46,7 +48,14 @@
   (concatenation [n1 n2] (doh!))
   (difference [n1 n2] (doh!)))
 
-(defrecord Regex [alphabet syntax-tree]
+; Second argument should be one of the following:
+;   - a set of literals
+;   - [:star <RE>]
+;   - [:qmark <RE>]
+;   - [:or <RE> ...]
+;   - [:concat <RE> ...]
+;
+(defrecord Regex [alphabet regex-parse-tree]
   IRanguage
   (to-dfa [r] (doh!))
   (to-re [r] r)
@@ -57,6 +66,12 @@
   (intersection [r1 r2] (doh!))
   (concatenation [r1 r2] (doh!))
   (difference [r1 r2] (doh!)))
+
+(defn parse-regex
+  [alphabet re]
+  (wk/postwalk
+    (fn [x] (new Regex alphabet x))
+    (rrp/parse-regex alphabet (str re))))
 
 (defn optimize-dfa
   [dfa]

@@ -11,5 +11,5 @@
        ".*" [:star HEX],
        "(.*ab)?b+|c+"
          [:or [:concat [:qmark [:concat [:star HEX] #{\a} #{\b}]]
-                       [:plus #{\b}]]
-              [:plus #{\c}]]))
+                       [:concat #{\b} [:star #{\b}]]]
+              [:concat #{\c} [:star #{\c}]]]))

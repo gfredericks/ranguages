@@ -91,5 +91,9 @@
             (fn [& _] (throw (new Exception "PARSE FAILURE")))
             {:remainder (lex alphabet s)})]
     (wk/postwalk
-      #(if (= % :dot) alphabet %)
+      #(cond
+         (= % :dot) alphabet
+         (and (list? %) (= :plus (first %)))
+           (list :concat (second %) (list :star (second %)))
+         :else %)
       match)))
