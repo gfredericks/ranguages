@@ -2,6 +2,14 @@
   (:use ranguages.regex-parser)
   (:use clojure.test))
 
+(def HEX (set "abcdef"))
+
 (deftest parse-regex-test
-  (are [alph re pt] (= pt (parse-regex alph re))
-       #{\a \b \c} "abc" [:concat #{\a} #{\b} #{\c}]))
+  (are [re pt] (= pt (parse-regex HEX re))
+       "abc" [:concat #{\a} #{\b} #{\c}],
+       "a|b|c" [:or #{\a} #{\b} #{\c}],
+       ".*" [:star HEX],
+       "(.*ab)?b+|c+"
+         [:or [:concat [:qmark [:concat [:star HEX] #{\a} #{\b}]]
+                       [:plus #{\b}]]
+              [:plus #{\c}]]))

@@ -1,4 +1,5 @@
 (ns ranguages.regex-parser
+  (:require [clojure.walk :as wk])
   (:use name.choi.joshua.fnparse))
 
 (def special-chars
@@ -9,7 +10,8 @@
    \. :dot,
    \+ :plus,
    \* :star,
-   \| :or})
+   \| :or,
+   \? :qmark})
 
 (defn- lex
   [alphabet s]
@@ -28,10 +30,66 @@
       :else
         (throw (new Exception "Wut is that")))))
 
-(declare parse)
+(declare reggie)
+(declare expression)
+
+(def literal
+  (alt
+    (semantics
+      (term char?)
+      hash-set)
+    (constant-semantics (term #{:dot}) :dot)))
+
+(def modifier
+  (alt (lit :plus) (lit :star) (lit :qmark)))
+
+(def factor
+  (alt
+    literal
+    (semantics
+      (conc (lit :l-paren) expression (lit :r-paren))
+      (fn [[_ exp _]]
+        exp))))
+
+(def modified-factor
+  (semantics
+    (conc factor (opt modifier))
+    (fn [[fax mod]]
+      (if mod
+        (list mod fax)
+        fax))))
+
+(def tterm
+  (semantics
+    (rep+ modified-factor)
+    (fn [mfs]
+      (if (= 1 (count mfs))
+        (first mfs)
+        (cons :concat mfs)))))
+
+(def expression
+  (semantics
+    (conc tterm (rep* (conc (lit :or) tterm)))
+    (fn [[first-term other-terms]]
+      (if (empty? other-terms)
+        first-term
+        (list* :or first-term (map second other-terms))))))
+
+
+(def reggie expression)
 
 (defn parse-regex
   "Takes a string representation of a regex and an alphabet and returns
-  a parsed Regex object."
+  a regex parse tree.
+
+  Tree Representation: not sure. Maybe we should use a defrecord to distinguish...?"
   [alphabet s]
-  (parse (lex alphabet s)))
+  (let [match
+          (rule-match
+            reggie
+            (fn [& _] (throw (new Exception "PARSE FAILURE")))
+            (fn [& _] (throw (new Exception "PARSE FAILURE")))
+            {:remainder (lex alphabet s)})]
+    (wk/postwalk
+      #(if (= % :dot) alphabet %)
+      match)))

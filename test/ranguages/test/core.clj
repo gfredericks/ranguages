@@ -1,6 +1,3 @@
 (ns ranguages.test.core
-  (:use [ranguages.core])
+  (:require [ranguages.core :as rc])
   (:use [clojure.test]))
-
-(deftest replace-me ;; FIXME: write
-  (is false "No tests have been written."))
