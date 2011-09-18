@@ -30,6 +30,10 @@
   []
   (throw (new java.lang.UnsupportedOperationException)))
 
+; Represents a strict DFA, where every state/char maps to an
+; existing state (i.e., there are no implicit transitions to
+; a dead state).
+;
 ; Types:
 ;   states: set of keywords
 ;   alphabet: set of anything? (or chars...)
@@ -55,7 +59,11 @@
   (concatenation [d1 d2] (doh!))
   (difference [d1 d2] (doh!)))
 
-; Types:
+; Represents an NFA with epsilon transitions. Because each
+; state/char maps to a subset of states, non-accepting paths
+; can be modeled as simply transition to the empty-set of states.
+;
+; Argument Types:
 ;   states: set of keywords
 ;   alphabet: set of anything? (or chars...)
 ;   transition:
@@ -93,6 +101,86 @@
                          (map #(set (map state-map %)) (vals inner-transition-map))))))
            (state-map start)
            (set (map state-map accept))))))
+
+; NFA building functions
+(defn empty-nfa
+  "Creates an NFA of one state, where all characters transition
+  to the empty set (i.e., it recognizes the empty language).
+  Only really useful for combining with the other NFA builder
+  functions."
+  [alphabet only-state]
+  (new NFA
+       #{only-state}
+       alphabet
+       {only-state {(conj alphabet epsilon) #{}}}
+       only-state
+       #{}))
+
+(defn remove-state
+  [{:keys [states alphabet transition start accept] :as nfa} state]
+  {:pre [(not= state start) (states state)]}
+  (new NFA
+       (disj states state)
+       alphabet
+       (let [transition (dissoc transition state)]
+         (zipmap
+           (keys transition)
+           (for [inner (vals transition)]
+             (zipmap (keys inner) (map #(disj % state) (vals inner))))))
+       start
+       (disj accept state)))
+
+(defn add-state
+  "Adds a new state with no incoming or outgoing transitions."
+  [{:keys [states alphabet transition start accept] :as nfa} state]
+  {:pre [(not (states state))]}
+  (new NFA
+       (conj states state)
+       alphabet
+       (assoc transition
+              state
+              {(conj alphabet epsilon) #{}})
+       start
+       accept))
+
+(defn add-transition
+  [{:keys [states alphabet transition start accept] :as nfa} from-state chars to-states]
+  {:pre [(states from-state)
+         (sets/subset? to-states states)
+         (sets/subset? chars (conj alphabet epsilon))]}
+  (new NFA
+       states
+       alphabet
+       (assoc transition
+              from-state
+              (let [old-val (transition from-state)]
+                (if-let [old-chars (old-val chars)]
+                  ; the easy case
+                  (sets/union (old-chars to-states))
+                  ; the hard case -- must be some overlap or something
+                  (reduce
+                    (fn [inner-trans chars*]
+                      (if (empty? (sets/intersection chars* chars))
+                        inner-trans
+                        (-> inner-trans
+                            (dissoc chars*)
+                            (assoc
+                              (sets/difference chars* chars)
+                              (inner-trans chars*))
+                            (assoc
+                              (sets/difference chars chars*)
+                              to-states)
+                            ; in case either of the preceding assoc's were empty
+                            (dissoc #{}))))
+                    old-val
+                    (keys old-val)))))
+       start
+       accept))
+
+(defn add-accepting-state
+  [{:keys [states alphabet transition start accept] :as nfa} state]
+  {:pre [(states state)]}
+  (new NFA states alphabet transition start (conj accept state)))
 
 (defn inject-state-machine
   "Replaces the state outer-state in the NFA outer-machine
