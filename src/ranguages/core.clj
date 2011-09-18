@@ -49,6 +49,16 @@
 ;   accept: a set of state names
 (defrecord DFA [states alphabet transition start accept]
   IRanguage
+  (contains? [d s]
+    (boolean
+      (accept
+        (reduce
+          (fn [state c]
+            (let [inner (transition state),
+                  char-set (first (filter #(% c) (keys inner)))]
+              (inner char-set)))
+          start
+          s))))
   (to-dfa [d] d)
   (to-re [d] (doh!))
   (to-nfa [d] (doh!))
@@ -78,6 +88,30 @@
 ;   accept: a set of state names
 (defrecord NFA [states alphabet transition start accept]
   IRanguage
+  (contains? [n s]
+    (let [trans
+            (fn [state c]
+              (let [inner (transition state),
+                    charset (first (filter #(% c) (keys inner)))]
+                (inner charset))),
+          epsilon-closure
+            (fn [state]
+              (loop [sts #{state}]
+                (let [sts* (sets/union sts (set (mapcat #(trans % epsilon) sts)))]
+                  (if (= sts sts*) sts (recur sts*)))))]
+      (not
+        (empty?
+          (sets/intersection
+            accept
+            (reduce
+              (fn [sts c]
+                (set
+                  (for [st sts,
+                        new-st (trans st c),
+                        clsd-st (epsilon-closure new-st)]
+                    clsd-st)))
+              (epsilon-closure start)
+              s))))))
   (to-dfa [n] (doh!))
   (to-re [n] (doh!))
   (to-nfa [n] n)
@@ -168,6 +202,9 @@
                               (sets/difference chars* chars)
                               (inner-trans chars*))
                             (assoc
+                              (sets/intersection chars chars*)
+                              (sets/union to-states (inner-trans chars*)))
+                            (assoc
                               (sets/difference chars chars*)
                               to-states)
                             ; in case either of the preceding assoc's were empty
@@ -203,14 +240,9 @@
     (cond
       (set? regex-parse-tree)
         (let [alphabet (conj alphabet ::epsilon)]
-          (new NFA
-               #{:a :b :c}
-               alphabet
-               {:a {regex-parse-tree #{:b},
-                    (sets/difference alphabet regex-parse-tree) #{}},
-                :b {alphabet #{}}},
-               :a
-               #{:b}))
+          (-> (empty-nfa :a)
+            (add-state :b)
+            (add-transition :a regex-parse-tree #{:b})))
       (= :star (first regex-parse-tree))
         (let [child-range (to-nfa (first regex-parse-tree))]
           (doh!))))
