@@ -73,6 +73,8 @@
   [prefix k]
   (keyword (str (name prefix) (name k))))
 
+(declare add-accepting-state empty-nfa add-state add-transition inject-state-machine)
+
 ; Represents an NFA with epsilon transitions. Because each
 ; state/char maps to a subset of states, non-accepting paths
 ; can be modeled as simply transition to the empty-set of states.
@@ -120,7 +122,16 @@
   (to-re [n] (doh!))
   (to-nfa [n] n)
   (reverse [n] (doh!))
-  (star [n] (doh!))
+  (star [n]
+    (let [star-skeleton
+            (->
+              (empty-nfa alphabet :a)
+              (add-state :b :c)
+              (add-transition :a #{epsilon} #{:b})
+              (add-transition :b #{epsilon} #{:c})
+              (add-transition :c #{epsilon} #{:a})
+              (add-accepting-state :c))]
+      (inject-state-machine star-skeleton n :b)))
   (union [n1 n2] (doh!))
   (intersection [n1 n2] (doh!))
   (concatenation [n1 n2] (doh!))
@@ -170,7 +181,9 @@
 
 (defn add-state
   "Adds a new state with no incoming or outgoing transitions."
-  [{:keys [states alphabet transition start accept] :as nfa} state]
+  ([nfa s1 s2 & ss]
+    (reduce add-state nfa (list* s1 s2 ss)))
+  ([{:keys [states alphabet transition start accept] :as nfa} state]
   {:pre [(not (states state))]}
   (new NFA
        (conj states state)
@@ -179,7 +192,7 @@
               state
               {(conj alphabet epsilon) #{}})
        start
-       accept))
+       accept)))
 
 (defn- unify-transition-functions
   "Given two maps from character-sets to state-sets, returns a single
@@ -241,36 +254,38 @@
         outer-state (prefix-keyword :a outer-state),
         om-states (:states outer-machine),
         im-states (:states inner-machine),
-        new-states (-> om-states (disj outer-state) (sets/union im-states))]
+        new-states (-> om-states (disj outer-state) (sets/union im-states)),
+        new-transition
+          (zipmap
+            new-states
+            (for [state new-states]
+              (if (om-states state)
+                (let [om-trans (-> outer-machine :transition state)]
+                  (zipmap
+                    (keys om-trans)
+                    (for [state-set (vals om-trans)]
+                      (if (state-set outer-state)
+                        (-> state-set (disj outer-state) (conj (:start inner-machine)))
+                        state-set))))
+                (let [im-trans (-> inner-machine :transition state)]
+                  (if (-> inner-machine :accept state)
+                    (unify-transition-functions
+                      im-trans
+                      (-> outer-machine :transition outer-state))
+                    im-trans)))))]
     (new NFA
          new-states
          (:alphabet outer-machine)
-         (zipmap
-           new-states
-           (for [state new-states]
-             (if (om-states state)
-               (let [om-trans (-> outer-machine :transition state)]
-                 (zipmap
-                   (keys om-trans)
-                   (for [state-set (vals om-trans)]
-                     (if (state-set outer-state)
-                       (-> state-set (disj outer-state) (conj (:start inner-machine)))
-                       state-set))))
-               (let [im-trans (-> inner-machine :transition state)]
-                 (if (-> inner-machine :accepting state)
-                   (unify-transition-functions
-                     im-trans
-                     (-> outer-machine :transition outer-state))
-                   im-trans)))))
+         new-transition
          (if (= (:start outer-machine) outer-state)
            (:start inner-machine)
            (:start outer-machine))
-         (let [out-accept (:accepting outer-machine)]
+         (let [out-accept (:accept outer-machine)]
            (if (out-accept outer-state)
              (->
                out-accept
                (disj outer-state)
-               (sets/union (:accepting inner-machine)))
+               (sets/union (:accept inner-machine)))
              out-accept)))))
 
 ; Second argument should be one of the following:
@@ -287,13 +302,21 @@
   (to-nfa [r]
     (cond
       (set? regex-parse-tree)
-        (let [alphabet (conj alphabet ::epsilon)]
-          (-> (empty-nfa :a)
-            (add-state :b)
-            (add-transition :a regex-parse-tree #{:b})))
+        (-> (empty-nfa alphabet :a)
+          (add-state :b)
+          (add-transition :a regex-parse-tree #{:b})
+          (add-accepting-state :b))
       (= :star (first regex-parse-tree))
-        (let [child-range (to-nfa (first regex-parse-tree))]
-          (doh!))))
+        (-> regex-parse-tree second to-nfa star)
+      (= :qmark (first regex-parse-tree))
+        (let [empty-string-language
+                (-> (empty-nfa :a) (add-accepting-state :a))]
+          (-> regex-parse-tree second to-nfa (union empty-string-language)))
+      (= :or (first regex-parse-tree))
+        (->> regex-parse-tree rest (map to-nfa) (reduce union))
+      (= :concat (first regex-parse-tree))
+        (->> regex-parse-tree rest (map to-nfa) (reduce concatenation))
+      :else (throw (new Exception (str "What's wrong here? -- " (pr-str regex-parse-tree))))))
   (reverse [r] (doh!))
   (star [r] (doh!))
   (union [r1 r2] (doh!))
@@ -305,11 +328,11 @@
   [alphabet re]
   (wk/postwalk
     (fn [x]
-      (new Regex
-           alphabet
-           (if (set? x)
-             x
-             (cons (first x) (map parse-regex (rest x))))))
+      (cond
+        (set? x) (new Regex alphabet x)
+        (keyword? x) x
+        (char? x) x
+        (sequential? x) (new Regex alphabet (cons (first x) (rest x)))))
     (rrp/parse-regex alphabet (str re))))
 
 (defn optimize-dfa

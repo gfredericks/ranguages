@@ -34,3 +34,13 @@
            "xz" "xyz" "xyyz" "xyyyyyyyyyyyyyyz")
       (are [s] (not (contains? nfa s))
            "x" "z" "xy" "xyyy" "zyx" ""))))
+
+(deftest regex-and-nfa-and-stuff-test
+  (are [re goods bads]
+       (let [nfa (to-nfa (parse-regex (set "abc") re))]
+         (and
+           (every? #(contains? nfa %) goods)
+           (every? #(not (contains? nfa %)) bads)))
+    "ab*c"
+       ["ac" "abc" "abbc" "abbbc"]
+       ["a" "" "c" "bc" "ab" "aabc" "abbbbcc"]))
