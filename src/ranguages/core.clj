@@ -26,7 +26,7 @@
 (defprotocol IHasStateNames
   (prefix-state-names [r prefix]))
 
-(defn doh!
+(defn- doh!
   []
   (throw (new java.lang.UnsupportedOperationException)))
 
@@ -68,6 +68,10 @@
   (intersection [d1 d2] (doh!))
   (concatenation [d1 d2] (doh!))
   (difference [d1 d2] (doh!)))
+
+(defn- prefix-keyword
+  [prefix k]
+  (keyword (str (name prefix) (name k))))
 
 ; Represents an NFA with epsilon transitions. Because each
 ; state/char maps to a subset of states, non-accepting paths
@@ -123,7 +127,7 @@
   (difference [n1 n2] (doh!))
   IHasStateNames
   (prefix-state-names [n prefix]
-    (let [state-map (zipmap states (for [state states] (keyword (str prefix (name state)))))]
+    (let [state-map (zipmap states (map (partial prefix-keyword prefix) states))]
       (new NFA
            (-> state-map vals set)
            alphabet
@@ -177,6 +181,34 @@
        start
        accept))
 
+(defn- unify-transition-functions
+  "Given two maps from character-sets to state-sets, returns a single
+  map that unifies them (i.e., combines the transitions. Whatever.)"
+  [tf1 tf2]
+  (reduce
+    (fn [trans [chars to-states]]
+      (reduce
+        (fn [trans [chars* state-set]]
+          (if (empty? (sets/intersection chars* chars))
+            trans
+            (-> trans
+                (dissoc chars*)
+                (assoc
+                  (sets/difference chars* chars)
+                  state-set)
+                (assoc
+                  (sets/intersection chars chars*)
+                  (sets/union to-states state-set))
+                (assoc
+                  (sets/difference chars chars*)
+                  to-states)
+                ; in case any of the preceding assoc's were empty
+                (dissoc #{}))))
+        trans
+        trans))
+    tf1
+    tf2))
+
 (defn add-transition
   [{:keys [states alphabet transition start accept] :as nfa} from-state chars to-states]
   {:pre [(states from-state)
@@ -189,28 +221,8 @@
               from-state
               (let [old-val (transition from-state)]
                 (if-let [old-chars (old-val chars)]
-                  ; the easy case
                   (sets/union (old-chars to-states))
-                  ; the hard case -- must be some overlap or something
-                  (reduce
-                    (fn [inner-trans chars*]
-                      (if (empty? (sets/intersection chars* chars))
-                        inner-trans
-                        (-> inner-trans
-                            (dissoc chars*)
-                            (assoc
-                              (sets/difference chars* chars)
-                              (inner-trans chars*))
-                            (assoc
-                              (sets/intersection chars chars*)
-                              (sets/union to-states (inner-trans chars*)))
-                            (assoc
-                              (sets/difference chars chars*)
-                              to-states)
-                            ; in case either of the preceding assoc's were empty
-                            (dissoc #{}))))
-                    old-val
-                    (keys old-val)))))
+                  (unify-transition-functions old-val {chars to-states}))))
        start
        accept))
 
@@ -221,9 +233,45 @@
 
 (defn inject-state-machine
   "Replaces the state outer-state in the NFA outer-machine
-  with the NFA inner-machine."
+  with the NFA inner-machine. Will rename states."
   [outer-machine inner-machine outer-state]
-  )
+  {:pre [(= (:alphabet outer-machine) (:alphabet inner-machine))]}
+  (let [outer-machine (prefix-state-names outer-machine :a),
+        inner-machine (prefix-state-names inner-machine :b),
+        outer-state (prefix-keyword :a outer-state),
+        om-states (:states outer-machine),
+        im-states (:states inner-machine),
+        new-states (-> om-states (disj outer-state) (sets/union im-states))]
+    (new NFA
+         new-states
+         (:alphabet outer-machine)
+         (zipmap
+           new-states
+           (for [state new-states]
+             (if (om-states state)
+               (let [om-trans (-> outer-machine :transition state)]
+                 (zipmap
+                   (keys om-trans)
+                   (for [state-set (vals om-trans)]
+                     (if (state-set outer-state)
+                       (-> state-set (disj outer-state) (conj (:start inner-machine)))
+                       state-set))))
+               (let [im-trans (-> inner-machine :transition state)]
+                 (if (-> inner-machine :accepting state)
+                   (unify-transition-functions
+                     im-trans
+                     (-> outer-machine :transition outer-state))
+                   im-trans)))))
+         (if (= (:start outer-machine) outer-state)
+           (:start inner-machine)
+           (:start outer-machine))
+         (let [out-accept (:accepting outer-machine)]
+           (if (out-accept outer-state)
+             (->
+               out-accept
+               (disj outer-state)
+               (sets/union (:accepting inner-machine)))
+             out-accept)))))
 
 ; Second argument should be one of the following:
 ;   - a set of literals
