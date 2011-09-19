@@ -344,7 +344,7 @@
         (-> regex-parse-tree second to-nfa star)
       (= :qmark (first regex-parse-tree))
         (let [empty-string-language
-                (-> (empty-nfa :a) (add-accepting-state :a))]
+                (-> (empty-nfa alphabet :a) (add-accepting-state :a))]
           (-> regex-parse-tree second to-nfa (union empty-string-language)))
       (= :or (first regex-parse-tree))
         (->> regex-parse-tree rest (map to-nfa) (reduce union))

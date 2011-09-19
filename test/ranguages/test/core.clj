@@ -1,5 +1,5 @@
 (ns ranguages.test.core
-  (:refer-clojure :except [contains? reverse])
+  (:refer-clojure :exclude [contains? reverse])
   (:use ranguages.core)
   (:use [clojure.test])
   (:import ranguages.core.NFA))
