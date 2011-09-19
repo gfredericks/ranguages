@@ -75,6 +75,20 @@
 
 (declare add-accepting-state empty-nfa add-state add-transition inject-state-machine)
 
+(defn- nfa-transition
+  "Returns the set of states that a particular state and character
+  lead to."
+  [nfa state c]
+  (let [inner ((:transition nfa) state),
+        charset (first (filter #(% c) (keys inner)))]
+    (inner charset)))
+
+(defn- nfa-epsilon-closure
+  [nfa state]
+  (loop [sts #{state}]
+    (let [sts* (sets/union sts (set (mapcat #(nfa-transition nfa % epsilon) sts)))]
+      (if (= sts sts*) sts (recur sts*)))))
+
 ; Represents an NFA with epsilon transitions. Because each
 ; state/char maps to a subset of states, non-accepting paths
 ; can be modeled as simply transition to the empty-set of states.
@@ -95,30 +109,21 @@
 (defrecord NFA [states alphabet transition start accept]
   IRanguage
   (contains? [n s]
-    (let [trans
-            (fn [state c]
-              (let [inner (transition state),
-                    charset (first (filter #(% c) (keys inner)))]
-                (inner charset))),
-          epsilon-closure
-            (fn [state]
-              (loop [sts #{state}]
-                (let [sts* (sets/union sts (set (mapcat #(trans % epsilon) sts)))]
-                  (if (= sts sts*) sts (recur sts*)))))]
-      (not
-        (empty?
-          (sets/intersection
-            accept
-            (reduce
-              (fn [sts c]
-                (set
-                  (for [st sts,
-                        new-st (trans st c),
-                        clsd-st (epsilon-closure new-st)]
-                    clsd-st)))
-              (epsilon-closure start)
-              s))))))
-  (to-dfa [n] (doh!))
+    (not
+      (empty?
+        (sets/intersection
+          accept
+          (reduce
+            (fn [sts c]
+              (set
+                (for [st sts,
+                      new-st (nfa-transition n st c),
+                      clsd-st (nfa-epsilon-closure n new-st)]
+                  clsd-st)))
+            (nfa-epsilon-closure n start)
+            s)))))
+  (to-dfa [n]
+    )
   (to-re [n] (doh!))
   (to-nfa [n] n)
   (reverse [n] (doh!))
