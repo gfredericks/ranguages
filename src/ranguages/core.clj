@@ -127,14 +127,32 @@
             (->
               (empty-nfa alphabet :a)
               (add-state :b :c)
-              (add-transition :a #{epsilon} #{:b})
+              (add-transition :a #{epsilon} #{:b :c})
               (add-transition :b #{epsilon} #{:c})
               (add-transition :c #{epsilon} #{:a})
               (add-accepting-state :c))]
-      (inject-state-machine star-skeleton n :b)))
-  (union [n1 n2] (doh!))
+      (inject-state-machine star-skeleton (prefix-state-names n :z) :b)))
+  (union [n1 n2]
+    (->
+      (empty-nfa alphabet :a)
+      (add-state :b :c :d)
+      (add-transition :a #{epsilon} #{:b :c})
+      (add-transition :b #{epsilon} #{:d})
+      (add-transition :c #{epsilon} #{:d})
+      (add-accepting-state :d)
+      (inject-state-machine (prefix-state-names n1 :x) :b)
+      (inject-state-machine (prefix-state-names n2 :y) :c)))
   (intersection [n1 n2] (doh!))
-  (concatenation [n1 n2] (doh!))
+  (concatenation [n1 n2]
+    (->
+      (empty-nfa alphabet :a)
+      (add-state :b :c :d)
+      (add-transition :a #{epsilon} #{:b})
+      (add-transition :b #{epsilon} #{:c})
+      (add-transition :c #{epsilon} #{:d})
+      (add-accepting-state :d)
+      (inject-state-machine (prefix-state-names n1 :x) :b)
+      (inject-state-machine (prefix-state-names n2 :y) :c)))
   (difference [n1 n2] (doh!))
   IHasStateNames
   (prefix-state-names [n prefix]
@@ -194,33 +212,49 @@
        start
        accept)))
 
-(defn- unify-transition-functions
-  "Given two maps from character-sets to state-sets, returns a single
-  map that unifies them (i.e., combines the transitions. Whatever.)"
-  [tf1 tf2]
+(defn- invert-map
+  [m]
   (reduce
-    (fn [trans [chars to-states]]
-      (reduce
-        (fn [trans [chars* state-set]]
-          (if (empty? (sets/intersection chars* chars))
-            trans
-            (-> trans
+    (fn [m2 [k v]]
+      (update-in m2 [v] conj k))
+    {}
+    m))
+
+(let [simplify-trans-map
+        (fn [m]
+          (let [inv (invert-map m)]
+            (reduce
+              (fn [m [v ks]]
+                (if (> (count ks) 1)
+                  (assoc
+                    (apply dissoc m ks)
+                    (apply sets/union ks)
+                    v)
+                  m))
+              m
+              inv)))]
+  (defn- unify-transition-functions
+    "Given two maps from character-sets to state-sets, returns a single
+    map that unifies them (i.e., combines the transitions. Whatever.)"
+    [tf1 tf2]
+    {:post [(not (nil? %))]}
+    (reduce
+      (fn [trans [chars to-states]]
+        (reduce
+          (fn [trans [chars* state-set]]
+            (let [new-stuff
+                    {(sets/difference chars* chars) state-set,
+                     (sets/intersection chars* chars) (sets/union to-states state-set)}]
+              (->
+                trans
                 (dissoc chars*)
-                (assoc
-                  (sets/difference chars* chars)
-                  state-set)
-                (assoc
-                  (sets/intersection chars chars*)
-                  (sets/union to-states state-set))
-                (assoc
-                  (sets/difference chars chars*)
-                  to-states)
-                ; in case any of the preceding assoc's were empty
-                (dissoc #{}))))
-        trans
-        trans))
-    tf1
-    tf2))
+                (merge new-stuff)
+                (dissoc #{})
+                (simplify-trans-map))))
+          trans
+          trans))
+      tf1
+      tf2)))
 
 (defn add-transition
   [{:keys [states alphabet transition start accept] :as nfa} from-state chars to-states]
@@ -233,8 +267,8 @@
        (assoc transition
               from-state
               (let [old-val (transition from-state)]
-                (if-let [old-chars (old-val chars)]
-                  (sets/union (old-chars to-states))
+                (if-let [old-chars-states (old-val chars)]
+                  (assoc old-val chars (sets/union old-chars-states to-states))
                   (unify-transition-functions old-val {chars to-states}))))
        start
        accept))
@@ -248,11 +282,11 @@
   "Replaces the state outer-state in the NFA outer-machine
   with the NFA inner-machine. Will rename states."
   [outer-machine inner-machine outer-state]
-  {:pre [(= (:alphabet outer-machine) (:alphabet inner-machine))]}
-  (let [outer-machine (prefix-state-names outer-machine :a),
-        inner-machine (prefix-state-names inner-machine :b),
-        outer-state (prefix-keyword :a outer-state),
-        om-states (:states outer-machine),
+  {:pre [(= (:alphabet outer-machine) (:alphabet inner-machine))
+         (empty? (sets/intersection (:states outer-machine) (:states inner-machine)))]
+   ; result should not contain the replaced state
+   :post [(-> % :states (get outer-state) nil?)]}
+  (let [om-states (:states outer-machine),
         im-states (:states inner-machine),
         new-states (-> om-states (disj outer-state) (sets/union im-states)),
         new-transition

@@ -35,12 +35,32 @@
       (are [s] (not (contains? nfa s))
            "x" "z" "xy" "xyyy" "zyx" ""))))
 
+(deftest nfa-builder-test
+  (let [nfa
+          (->
+            (empty-nfa (set "abc") :a)
+            (add-state :b)
+            (add-transition :a #{\a} #{:b})
+            (add-transition :a #{\c} #{:b}))]
+    (is (= (-> nfa :transition :a) {#{epsilon \b} #{}, #{\a \c} #{:b}})))
+  (let [nfa
+          (->
+            (empty-nfa (set "abc") :a)
+            (add-state :b :c)
+            (add-transition :a #{\a} #{:b})
+            (add-transition :a #{\a} #{:c}))]
+    (is (= (-> nfa :transition :a) {#{epsilon \b \c} #{}, #{\a} #{:b :c}}))))
+
 (deftest regex-and-nfa-and-stuff-test
-  (are [re goods bads]
-       (let [nfa (to-nfa (parse-regex (set "abc") re))]
-         (and
-           (every? #(contains? nfa %) goods)
-           (every? #(not (contains? nfa %)) bads)))
-    "ab*c"
-       ["ac" "abc" "abbc" "abbbc"]
-       ["a" "" "c" "bc" "ab" "aabc" "abbbbcc"]))
+  (doseq [[re goods bads]
+          [["ab*c"
+            ["ac" "abc" "abbc" "abbbc"]
+            ["a" "" "c" "bc" "ab" "aabc" "abbbbcc"]]
+           ["b*"
+            ["" "b" "bb" "bbb"]
+            ["a" "bbbc"]]]]
+    (let [nfa (-> "abc" set (parse-regex re) (to-nfa))]
+      (doseq [good goods]
+        (is (contains? nfa good)))
+      (doseq [bad bads]
+        (is (not (contains? nfa bad)))))))
