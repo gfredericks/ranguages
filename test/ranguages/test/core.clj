@@ -64,3 +64,6 @@
         (is (contains? nfa good)))
       (doseq [bad bads]
         (is (not (contains? nfa bad)))))))
+
+(deftest complex-regex-to-nfa-test
+  (is (to-nfa (parse-regex (set "abc") "a(b+cb)((a?c)a)+"))))
