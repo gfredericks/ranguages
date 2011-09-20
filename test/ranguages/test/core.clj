@@ -10,7 +10,8 @@
       ; alphabet regex good bad
       [alph "abc" ["abc"] ["" "a" "b"]
        alph "a+b" ["ab" "aab" "aaab"] ["b" "aabb" "abc"]
-       alph "(b?ac*)+a" ["aaa" "baccca" "aaababaca"] ["bb" "bacbaccc"]])))
+       alph "(b?ac*)+a" ["aaa" "baccca" "aaababaca"] ["bb" "bacbaccc"]
+       alph "(b((b|c)*)ab+)?c" ["c" "babc" "bbcbcbcabbbc"] ["" "bab" "bcbccbb"]])))
 
 (defn test-regex-examples
   "Calls the supplied function with alphabet, regex, pass-boolean, and example str.
@@ -92,5 +93,6 @@
             nfa* (remove-epsilon-transitions nfa),
             dfa (to-dfa nfa)]
         (is (= passing? (contains? nfa s)))
-        (is (= passing? (contains? nfa* s)))))))
+        (is (= passing? (contains? nfa* s)))
+        (is (= passing? (contains? dfa s)))))))
 

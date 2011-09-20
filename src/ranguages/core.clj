@@ -69,6 +69,10 @@
   (concatenation [d1 d2] (doh!))
   (difference [d1 d2] (doh!)))
 
+(defn minimize-dfa
+  [dfa]
+  (doh!))
+
 (defn- prefix-keyword
   [prefix k]
   (keyword (str (name prefix) (name k))))
@@ -157,46 +161,47 @@
             (nfa-epsilon-closure n start)
             s)))))
   (to-dfa [n]
-    (let [epsilon-closure (memoize (partial nfa-epsilon-closure n))
-          start-state (-> start epsilon-closure set)]
-      (loop [finished-states #{},
-             [next-state & upcoming-states :as whatever] [start-state],
-             transitions []]
-        (if next-state
-          (let [trans-fn
-                  (if (empty? next-state)
-                    {(conj alphabet epsilon) #{}}
-                    (reduce
-                      unify-transition-functions
-                      (map
-                        (fn [state]
-                          (let [trans (transition state)]
-                            (zipmap
-                              (keys trans)
-                              (map
-                                (fn [states]
-                                  (reduce sets/union (map epsilon-closure states)))
-                                (vals trans)))))
-                        next-state)))]
-            (recur
-              (conj finished-states next-state)
-              (concat
-                upcoming-states
-                (let [seen (sets/union finished-states (set whatever))]
-                  (remove seen (vals trans-fn))))
-              (conj transitions [next-state trans-fn])))
-          (let [transitions (apply hash-map (reduce concat transitions)),
-                state-names (zipmap (keys transitions) (for [x (range (count transitions))] (keyword (str "s" x))))]
+    (let [{:keys [transition start] :as nfa} (remove-epsilon-transitions n)]
+      (loop [upcoming-states #{#{start}},
+             transitions {}]
+        (if (empty? upcoming-states)
+          (let [state-names (zipmap (keys transitions) (for [x (range (count transitions))] (keyword (str "s" x))))]
             (new DFA
                  (-> state-names vals set)
                  alphabet
                  (zipmap
                    (map state-names (keys transitions))
                    (for [tf (vals transitions)]
-                     (zipmap (keys tf) (map state-names (vals tf)))))
-                 (state-names start-state)
-                 (map state-names
-                   (filter #(not (empty? (sets/intersection % accept))) (keys state-names)))))))))
+                     (zipmap
+                       (keys tf)
+                       (map state-names (vals tf)))))
+                 (state-names #{start})
+                 (set
+                   (map state-names
+                     (filter #(not (empty? (sets/intersection % accept))) (keys state-names))))))
+
+          (let [next-state (first upcoming-states),
+                trans-fn
+                  (if (empty? next-state)
+                    {alphabet #{}}
+                    (let [t-with-epsilon
+                            (reduce
+                              unify-transition-functions
+                              (map transition next-state))]
+                      (->
+                        (zipmap
+                          (for [k (keys t-with-epsilon)]
+                            (disj k epsilon))
+                          (vals t-with-epsilon))
+                        (dissoc #{}))))]
+            (recur
+              (disj
+                (sets/union
+                  upcoming-states
+                  (set (remove (set (keys transitions)) (vals trans-fn))))
+                next-state)
+              (assoc transitions next-state trans-fn)))))))
+
   (to-re [n] (doh!))
   (to-nfa [n] n)
   (reverse [n] (doh!))
@@ -281,14 +286,10 @@
     (reduce add-state nfa (list* s1 s2 ss)))
   ([{:keys [states alphabet transition start accept] :as nfa} state]
   {:pre [(not (states state))]}
-  (new NFA
-       (conj states state)
-       alphabet
-       (assoc transition
-              state
-              {(conj alphabet epsilon) #{}})
-       start
-       accept)))
+  (->
+    nfa
+    (update-in [:states] conj state)
+    (assoc-in [:transition state] {(conj alphabet epsilon) #{}}))))
 
 (defn- invert-map
   [m]
