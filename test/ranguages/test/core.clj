@@ -91,8 +91,14 @@
     (fn [alph reg passing? s]
       (let [nfa (-> (parse-regex alph reg) (to-nfa)),
             nfa* (remove-epsilon-transitions nfa),
-            dfa (to-dfa nfa)]
+            dfa (to-dfa nfa),
+            dfa* (minimize-dfa dfa)]
         (is (= passing? (contains? nfa s)))
         (is (= passing? (contains? nfa* s)))
-        (is (= passing? (contains? dfa s)))))))
+        (is (= passing? (contains? dfa s)))
+        (is (= passing? (contains? dfa* s)))))))
 
+
+(deftest minimal-dfa-size-test
+  (are [re size] (= size (-> (parse-regex (set "xyz") re) (to-nfa) (to-dfa) (minimize-dfa) (:states) (count)))
+       "xyz" 5))

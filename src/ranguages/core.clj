@@ -69,9 +69,57 @@
   (concatenation [d1 d2] (doh!))
   (difference [d1 d2] (doh!)))
 
+(defn- merge-states
+  [{:keys [start states transition accept] :as dfa} a b]
+  (if (= start b)
+    (merge-states dfa b a)
+    (assoc dfa
+           :states (disj states b)
+           :accept (disj accept b)
+           :transition
+             (let [transition (dissoc transition b)]
+               (zipmap
+                 (keys transition)
+                 (for [t (vals transition)]
+                   (zipmap
+                     (keys t)
+                     (for [v (vals t)]
+                       (if (= v b) a v)))))))))
+
+(defn- consolidate-states
+  [{:keys [accept states transition] :as dfa}]
+  (let [state-pairs (for [a states, b states, :when (< (hash a) (hash b))] [a b]),
+        [loop-result a b]
+           (loop [[[a b] & abs] state-pairs]
+             (if (and (= (accept a) (accept b))
+                      (= (transition a) (transition b)))
+               [true a b]
+               (if abs
+                 (recur abs)
+                 [false])))]
+    (if loop-result
+      (recur (merge-states dfa a b))
+      dfa)))
+
 (defn minimize-dfa
-  [dfa]
-  (doh!))
+  [{:keys [start states transition] :as dfa}]
+  (let [reachable-states
+          (loop [reachables #{},
+                 reaching #{start}]
+            (if (empty? reaching)
+              reachables
+              (let [next-state (first reaching),
+                    reaches (-> next-state transition vals set)]
+                (recur
+                  (conj reachables next-state)
+                  (->
+                    (sets/difference reaches reachables)
+                    (sets/union reaching)
+                    (disj next-state))))))]
+    (consolidate-states
+      (assoc dfa
+             :states reachable-states
+             :transition (select-keys transition reachable-states)))))
 
 (defn- prefix-keyword
   [prefix k]
@@ -447,7 +495,3 @@
         (char? x) x
         (sequential? x) (new Regex alphabet (cons (first x) (rest x)))))
     (rrp/parse-regex alphabet (str re))))
-
-(defn optimize-dfa
-  [dfa]
-  (doh!))
