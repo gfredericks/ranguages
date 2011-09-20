@@ -91,7 +91,7 @@
   (let [state-pairs (for [a states, b states, :when (< (hash a) (hash b))] [a b]),
         [loop-result a b]
            (loop [[[a b] & abs] state-pairs]
-             (if (and (= (accept a) (accept b))
+             (if (and (= (boolean (accept a)) (boolean (accept b)))
                       (= (transition a) (transition b)))
                [true a b]
                (if abs
