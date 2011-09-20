@@ -94,6 +94,35 @@
     (let [sts* (sets/union sts (set (mapcat #(nfa-transition nfa % epsilon) sts)))]
       (if (= sts sts*) sts (recur sts*)))))
 
+(defn remove-epsilon-transitions
+  "Returns an equvilant nfa where epsilon never leads anywhere. This
+  can be effectively treated as an NFA without epsilon transitions by
+  ignoring that part of the transition function."
+  [{:keys [states transition start accept] :as nfa}]
+  (let [epsilon-closure (memoize (partial nfa-epsilon-closure nfa)),
+        ; add start state as accepting if necessary
+        start-is-accept?
+          (not (empty? (sets/intersection accept (set (epsilon-closure start))))),
+        remove-epsilons
+          (fn [t]
+            (let [t2 (zipmap (for [k (keys t)] (disj k epsilon)) (vals t))]
+              (-> t2 (assoc #{epsilon} #{}) (dissoc #{}))))
+        new-transition
+          (zipmap
+            states
+            (for [state states]
+              (reduce
+                unify-transition-functions
+                (for [state* (epsilon-closure state)]
+                  (let [t (remove-epsilons (transition state*))]
+                    (zipmap
+                      (keys t)
+                      (for [v (vals t)]
+                        (reduce sets/union (map epsilon-closure v)))))))))]
+    (-> nfa
+      (assoc :transition new-transition)
+      (assoc :accept (if start-is-accept? (conj accept start) accept)))))
+
 ; Represents an NFA with epsilon transitions. Because each
 ; state/char maps to a subset of states, non-accepting paths
 ; can be modeled as simply transition to the empty-set of states.

@@ -9,8 +9,17 @@
     (partition 4
       ; alphabet regex good bad
       [alph "abc" ["abc"] ["" "a" "b"]
-       alph "a+b" ["ab" "aab" "aaab"] ["b" "aab" "abc"]
+       alph "a+b" ["ab" "aab" "aaab"] ["b" "aabb" "abc"]
        alph "(b?ac*)+a" ["aaa" "baccca" "aaababaca"] ["bb" "bacbaccc"]])))
+
+(defn test-regex-examples
+  "Calls the supplied function with alphabet, regex, pass-boolean, and example str.
+  Pass-boolean indicates if the string should be accepted or not."
+  [f]
+  (doseq [[alphabet regex good bad] regex-fixtures]
+    (doseq [[b ss] [[true good] [false bad]]]
+      (doseq [s ss]
+        (f alphabet regex b s)))))
 
 (deftest prefix-state-names-test
   (let [alpha (set "abc"),
@@ -77,10 +86,11 @@
   (is (to-nfa (parse-regex (set "abc") "a(b+cb)((a?c)a)+"))))
 
 (deftest nfa-to-dfa-and-such-test
-  (doseq [[alphabet regex good bad] regex-fixtures]
-    (doseq [[f ss] [[identity good] [not bad]]]
-      (let [nfa (-> (parse-regex alphabet regex) (to-nfa)),
+  (test-regex-examples
+    (fn [alph reg passing? s]
+      (let [nfa (-> (parse-regex alph reg) (to-nfa)),
+            nfa* (remove-epsilon-transitions nfa),
             dfa (to-dfa nfa)]
-        (doseq [s ss]
-          (is (f (contains? nfa s)))
-          (is (f (contains? dfa s))))))))
+        (is (= passing? (contains? nfa s)))
+        (is (= passing? (contains? nfa* s)))))))
+
