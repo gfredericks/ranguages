@@ -4,6 +4,14 @@
   (:use [clojure.test])
   (:import ranguages.core.NFA))
 
+(def regex-fixtures
+  (let [alph (set "abc")]
+    (partition 4
+      ; alphabet regex good bad
+      [alph "abc" ["abc"] ["" "a" "b"]
+       alph "a+b" ["ab" "aab" "aaab"] ["b" "aab" "abc"]
+       alph "(b?ac*)+a" ["aaa" "baccca" "aaababaca"] ["bb" "bacbaccc"]])))
+
 (deftest prefix-state-names-test
   (let [alpha (set "abc"),
         alpha* (conj alpha epsilon),
@@ -67,3 +75,12 @@
 
 (deftest complex-regex-to-nfa-test
   (is (to-nfa (parse-regex (set "abc") "a(b+cb)((a?c)a)+"))))
+
+(deftest nfa-to-dfa-and-such-test
+  (doseq [[alphabet regex good bad] regex-fixtures]
+    (doseq [[f ss] [[identity good] [not bad]]]
+      (let [nfa (-> (parse-regex alphabet regex) (to-nfa)),
+            dfa (to-dfa nfa)]
+        (doseq [s ss]
+          (is (f (contains? nfa s)))
+          (is (f (contains? dfa s))))))))

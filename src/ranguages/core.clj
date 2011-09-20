@@ -73,7 +73,12 @@
   [prefix k]
   (keyword (str (name prefix) (name k))))
 
-(declare add-accepting-state empty-nfa add-state add-transition inject-state-machine)
+(declare add-accepting-state
+         empty-nfa
+         add-state
+         add-transition
+         inject-state-machine
+         unify-transition-functions)
 
 (defn- nfa-transition
   "Returns the set of states that a particular state and character
@@ -123,7 +128,46 @@
             (nfa-epsilon-closure n start)
             s)))))
   (to-dfa [n]
-    )
+    (let [epsilon-closure (memoize (partial nfa-epsilon-closure n))
+          start-state (-> start epsilon-closure set)]
+      (loop [finished-states #{},
+             [next-state & upcoming-states :as whatever] [start-state],
+             transitions []]
+        (if next-state
+          (let [trans-fn
+                  (if (empty? next-state)
+                    {(conj alphabet epsilon) #{}}
+                    (reduce
+                      unify-transition-functions
+                      (map
+                        (fn [state]
+                          (let [trans (transition state)]
+                            (zipmap
+                              (keys trans)
+                              (map
+                                (fn [states]
+                                  (reduce sets/union (map epsilon-closure states)))
+                                (vals trans)))))
+                        next-state)))]
+            (recur
+              (conj finished-states next-state)
+              (concat
+                upcoming-states
+                (let [seen (sets/union finished-states (set whatever))]
+                  (remove seen (vals trans-fn))))
+              (conj transitions [next-state trans-fn])))
+          (let [transitions (apply hash-map (reduce concat transitions)),
+                state-names (zipmap (keys transitions) (for [x (range (count transitions))] (keyword (str "s" x))))]
+            (new DFA
+                 (-> state-names vals set)
+                 alphabet
+                 (zipmap
+                   (map state-names (keys transitions))
+                   (for [tf (vals transitions)]
+                     (zipmap (keys tf) (map state-names (vals tf)))))
+                 (state-names start-state)
+                 (map state-names
+                   (filter #(not (empty? (sets/intersection % accept))) (keys state-names)))))))))
   (to-re [n] (doh!))
   (to-nfa [n] n)
   (reverse [n] (doh!))
