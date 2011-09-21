@@ -86,6 +86,40 @@
       (fn [s1 s2]
         (and ((:accept d1) s1) (not ((:accept d2) s2)))))))
 
+(defn dfa-xor
+  [d1 d2]
+  (dfa-cartesian-product
+    d1
+    (to-dfa d2)
+    (fn [s1 s2]
+      (let [b1 ((:accept d1) s1), b2 ((:accept d2) s2)]
+        (or (and b1 (not b2))
+            (and b2 (not b1)))))))
+
+(defn- invert-map
+  [m]
+  (reduce
+    (fn [m2 [k v]]
+      (update-in m2 [v] conj k))
+    {}
+    m))
+
+(defn- simplify-trans-map
+  "Given a map with charset keys, unifies all keys that map to the
+  same value (whether states or state-sets)."
+  [m]
+  (let [inv (invert-map m)]
+    (reduce
+      (fn [m [v ks]]
+        (if (> (count ks) 1)
+          (assoc
+            (apply dissoc m ks)
+            (apply sets/union ks)
+            v)
+          m))
+      m
+      inv)))
+
 (defn- dfa-cartesian-product
   "The accept-fn should take two arguments, the first being
   a state from dfa1 and the second a state from dfa2. It
@@ -96,7 +130,7 @@
   (let [new-states
           (zipmap
             (for [s1 (:states dfa1), s2 (:states dfa2)] [s1 s2])
-            (for [s (range)] (str "s" s)))]
+            (for [s (range)] (keyword (str "s" s))))]
     (new DFA
          (set (vals new-states))
          (:alphabet dfa1)
@@ -110,7 +144,8 @@
                  {(sets/intersection chars1 chars2)
                     (new-states [state1 state2])})
                (->> (reduce merge))
-               (dissoc #{}))))
+               (dissoc #{})
+               (simplify-trans-map))))
          (new-states [(:start dfa1) (:start dfa2)])
          (set (map new-states (filter (partial apply accept-fn) (keys new-states)))))))
 
@@ -384,49 +419,28 @@
     (update-in [:states] conj state)
     (assoc-in [:transition state] {(conj alphabet epsilon) #{}}))))
 
-(defn- invert-map
-  [m]
+(defn- unify-transition-functions
+  "Given two maps from character-sets to state-sets, returns a single
+  map that unifies them (i.e., combines the transitions. Whatever.)"
+  [tf1 tf2]
+  {:post [(not (nil? %))]}
   (reduce
-    (fn [m2 [k v]]
-      (update-in m2 [v] conj k))
-    {}
-    m))
-
-(let [simplify-trans-map
-        (fn [m]
-          (let [inv (invert-map m)]
-            (reduce
-              (fn [m [v ks]]
-                (if (> (count ks) 1)
-                  (assoc
-                    (apply dissoc m ks)
-                    (apply sets/union ks)
-                    v)
-                  m))
-              m
-              inv)))]
-  (defn- unify-transition-functions
-    "Given two maps from character-sets to state-sets, returns a single
-    map that unifies them (i.e., combines the transitions. Whatever.)"
-    [tf1 tf2]
-    {:post [(not (nil? %))]}
-    (reduce
-      (fn [trans [chars to-states]]
-        (reduce
-          (fn [trans [chars* state-set]]
-            (let [new-stuff
-                    {(sets/difference chars* chars) state-set,
-                     (sets/intersection chars* chars) (sets/union to-states state-set)}]
-              (->
-                trans
-                (dissoc chars*)
-                (merge new-stuff)
-                (dissoc #{})
-                (simplify-trans-map))))
-          trans
-          trans))
-      tf1
-      tf2)))
+    (fn [trans [chars to-states]]
+      (reduce
+        (fn [trans [chars* state-set]]
+          (let [new-stuff
+                  {(sets/difference chars* chars) state-set,
+                   (sets/intersection chars* chars) (sets/union to-states state-set)}]
+            (->
+              trans
+              (dissoc chars*)
+              (merge new-stuff)
+              (dissoc #{})
+              (simplify-trans-map))))
+        trans
+        trans))
+    tf1
+    tf2))
 
 (defn add-transition
   [{:keys [states alphabet transition start accept] :as nfa} from-state chars to-states]

@@ -13,9 +13,8 @@
     }"
     (string/join
       "\n"
-      (for [{:keys [name label shape bgcolor]} states]
-        (format "%s [label=%s,shape=%s,style=filled,fillcolor=\"%s\"];"
-                name
+      (for [{:keys [label shape bgcolor]} states]
+        (format "%s [label=\"\",shape=%s,style=filled,fillcolor=\"%s\"];"
                 label
                 shape
                 bgcolor)))
@@ -39,8 +38,7 @@
             (:states dfa)),
         states
           (for [state (:states dfa)]
-            {:name (name state),
-             :label (name state),
+            {:label (name state),
              :shape
                (if ((:accept dfa) state)
                  "doublecircle"
