@@ -166,20 +166,44 @@
                      (for [v (vals t)]
                        (if (= v b) a v)))))))))
 
+(defn- transition-dfa
+  [{t :transition} state c]
+  (let [z (t state),
+        charset (first (filter #(% c) (keys z)))]
+    (z charset)))
+
 (defn- consolidate-states
-  [{:keys [accept states transition] :as dfa}]
-  (let [state-pairs (for [a states, b states, :when (< (hash a) (hash b))] [a b]),
-        [loop-result a b]
-           (loop [[[a b] & abs] state-pairs]
-             (if (and (= (boolean (accept a)) (boolean (accept b)))
-                      (= (transition a) (transition b)))
-               [true a b]
-               (if abs
-                 (recur abs)
-                 [false])))]
-    (if loop-result
-      (recur (merge-states dfa a b))
-      dfa)))
+  [{:keys [accept alphabet states transition start] :as dfa}]
+  (if (empty? accept)
+    ; Return a one-state reject-everything DFA
+    (new DFA #{start} alphabet {start {alphabet start}} start #{})
+    (loop [distinguishable?
+             (let [state-pairs (for [a states, b states, :when (< (hash a) (hash b))] [a b])]
+               (zipmap
+                 (map set state-pairs)
+                 (for [[a b] state-pairs] (apply not= (for [s [a b]] (boolean (accept s)))))))]
+      (let [distinguishable*
+              (reduce
+                (fn [dis [a b]]
+                  (if (some
+                        (fn [c]
+                          (let [[s1 s2] (for [s [a b]] (transition-dfa dfa s c))]
+                            (and (not= s1 s2) (dis #{s1 s2}))))
+                        alphabet)
+                    (assoc dis #{a b} true)
+                    dis))
+                distinguishable?
+                (map seq (remove distinguishable? (keys distinguishable?))))]
+        (if (= distinguishable? distinguishable*)
+          (reduce
+            (fn [dfa state]
+              (let [buddy (first (filter #(and (> (hash %) (hash state)) (not (distinguishable? #{state %}))) states))]
+                (if buddy
+                  (merge-states dfa buddy state)
+                  dfa)))
+            dfa
+            (sort-by hash states))
+          (recur distinguishable*))))))
 
 (defn minimize-dfa
   [{:keys [start states transition] :as dfa}]
