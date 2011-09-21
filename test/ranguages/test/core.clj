@@ -4,6 +4,10 @@
   (:use [clojure.test])
   (:import ranguages.core.NFA))
 
+(defn- make-dfa
+  [re]
+  (-> (parse-regex (set "xyz") re) (to-dfa)))
+
 (def regex-fixtures
   (let [alph (set "abc")]
     (partition 4
@@ -100,16 +104,16 @@
 
 
 (deftest minimal-dfa-size-test
-  (are [re size] (= size (-> (parse-regex (set "xyz") re) (to-nfa) (to-dfa) (minimize-dfa) (:states) (count)))
+  (are [re size] (= size (-> (make-dfa re) (minimize-dfa) (:states) (count)))
        "xyz" 5
        "(zxyz|xxyz|yxyz)" 6)
-  (let [dfa (-> (parse-regex (set "xyz") "(.xy+)|(xx(y|z).*)") (to-dfa) (minimize-dfa))]
+  (let [dfa (-> (make-dfa "(.xy+)|(xx(y|z).*)") (minimize-dfa))]
     ; I confirmed this fact by drawing it out manually.
     (is (< (count (:states dfa)) 9))))
 
 (deftest dfa-intersection-test
   (are [re1 re2 s matches]
-         (let [dfa (apply intersection (for [re [re1 re2]] (to-dfa (parse-regex (set "xyz") re))))]
+         (let [dfa (apply intersection (for [re [re1 re2]] (make-dfa re)))]
            (= matches (contains? dfa s)))
        "x.*" ".*z" "xxyxyz" true
        "x.*" ".*z" "xz" true
@@ -122,9 +126,19 @@
 
 (deftest dfa-difference-test
   (are [re1 re2 s matches]
-         (let [dfa (apply difference (for [re [re1 re2]] (to-dfa (parse-regex (set "xyz") re))))]
+         (let [dfa (apply difference (for [re [re1 re2]] (make-dfa re)))]
            (= matches (contains? dfa s)))
        "....." ".*xyz.*" "xyxyz" false
        "....." ".*xyz.*" "xyxzz" true
        ".y.*" ".*xyz.*" "xyxzz" true
        ".y.*" ".*xyz.*" "xzxzz" false))
+
+(deftest dfa-xor-test
+  (are [re1 re2 s matches]
+         (let [dfa (apply dfa-xor (for [re [re1 re2]] (make-dfa re)))]
+           (= matches (contains? dfa s)))
+       "....." ".*zzzz.*" "xyzxy"      true
+       "....." ".*zzzz.*" "zzzzz"      false
+       "....." ".*zzzz.*" "xyzy"       false
+       "....." ".*zzzz.*" "zzzz"       true
+       "....." ".*zzzz.*" "xyzzzzzzzx" true))
