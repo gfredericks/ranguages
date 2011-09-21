@@ -30,6 +30,8 @@
   []
   (throw (new java.lang.UnsupportedOperationException)))
 
+(declare dfa-cartesian-product)
+
 ; Represents a strict DFA, where every state/char maps to an
 ; existing state (i.e., there are no implicit transitions to
 ; a dead state).
@@ -64,10 +66,53 @@
   (to-nfa [d] (doh!))
   (reverse [d] (doh!))
   (star [d] (doh!))
-  (union [d1 d2] (doh!))
-  (intersection [d1 d2] (doh!))
+  (union [d1 d2]
+    (dfa-cartesian-product
+      d1
+      (to-dfa d2)
+      (fn [s1 s2]
+        (or ((:accept d1) s1) ((:accept d2) s2)))))
+  (intersection [d1 d2]
+    (dfa-cartesian-product
+      d1
+      (to-dfa d2)
+      (fn [s1 s2]
+        (and ((:accept d1) s1) ((:accept d2) s2)))))
   (concatenation [d1 d2] (doh!))
-  (difference [d1 d2] (doh!)))
+  (difference [d1 d2]
+    (dfa-cartesian-product
+      d1
+      (to-dfa d2)
+      (fn [s1 s2]
+        (and ((:accept d1) s1) (not ((:accept d2) s2)))))))
+
+(defn- dfa-cartesian-product
+  "The accept-fn should take two arguments, the first being
+  a state from dfa1 and the second a state from dfa2. It
+  should return true if the combined state should be accepting
+  and false otherwise."
+  [dfa1 dfa2 accept-fn]
+  {:pre [(= (:alphabet dfa1) (:alphabet dfa2))]}
+  (let [new-states
+          (zipmap
+            (for [s1 (:states dfa1), s2 (:states dfa2)] [s1 s2])
+            (for [s (range)] (str "s" s)))]
+    (new DFA
+         (set (vals new-states))
+         (:alphabet dfa1)
+         (zipmap
+           (vals new-states)
+           (for [[s1 s2] (keys new-states)]
+             ; TODO: simplify the result?
+             (->
+               (for [[chars1 state1] (-> dfa1 :transition s1),
+                     [chars2 state2] (-> dfa2 :transition s2)]
+                 {(sets/intersection chars1 chars2)
+                    (new-states [state1 state2])})
+               (->> (reduce merge))
+               (dissoc #{}))))
+         (new-states [(:start dfa1) (:start dfa2)])
+         (set (map new-states (filter (partial apply accept-fn) (keys new-states)))))))
 
 (defn- merge-states
   [{:keys [start states transition accept] :as dfa} a b]

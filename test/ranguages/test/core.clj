@@ -106,3 +106,25 @@
   (let [dfa (-> (parse-regex (set "xyz") "(.xy+)|(xx(y|z).*)") (to-dfa) (minimize-dfa))]
     ; I confirmed this fact by drawing it out manually.
     (is (< (count (:states dfa)) 9))))
+
+(deftest dfa-intersection-test
+  (are [re1 re2 s matches]
+         (let [dfa (apply intersection (for [re [re1 re2]] (to-dfa (parse-regex (set "xyz") re))))]
+           (= matches (contains? dfa s)))
+       "x.*" ".*z" "xxyxyz" true
+       "x.*" ".*z" "xz" true
+       "x.*" ".*z" "xxyxyzx" false
+       "x.*" ".*z" "yxxyxyz" false
+       ".*xyz.*" ".*zyx.*" "xyzyx" true
+       ".*xyz.*" ".*zyx.*" "xyzxxyxzyx" true
+       ".*xyz.*" ".*zyx.*" "xyzzzzzxyx" false
+       ".*xyz.*" ".*zyx.*" "xyxyx" false))
+
+(deftest dfa-difference-test
+  (are [re1 re2 s matches]
+         (let [dfa (apply difference (for [re [re1 re2]] (to-dfa (parse-regex (set "xyz") re))))]
+           (= matches (contains? dfa s)))
+       "....." ".*xyz.*" "xyxyz" false
+       "....." ".*xyz.*" "xyxzz" true
+       ".y.*" ".*xyz.*" "xyxzz" true
+       ".y.*" ".*xyz.*" "xzxzz" false))
