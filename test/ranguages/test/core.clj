@@ -102,4 +102,7 @@
 (deftest minimal-dfa-size-test
   (are [re size] (= size (-> (parse-regex (set "xyz") re) (to-nfa) (to-dfa) (minimize-dfa) (:states) (count)))
        "xyz" 5
-       "(zxyz|xxyz|yxyz)" 6))
+       "(zxyz|xxyz|yxyz)" 6)
+  (let [dfa (-> (parse-regex (set "xyz") "(.xy+)|(xx(y|z).*)") (to-dfa) (minimize-dfa))]
+    ; I confirmed this fact by drawing it out manually.
+    (is (< (count (:states dfa)) 9))))
