@@ -458,7 +458,7 @@
 ;
 (defrecord Regex [alphabet regex-parse-tree]
   IRanguage
-  (to-dfa [r] (doh!))
+  (to-dfa [r] (-> r to-nfa to-dfa))
   (to-re [r] r)
   (to-nfa [r]
     (cond
