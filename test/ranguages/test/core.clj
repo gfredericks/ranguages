@@ -12,7 +12,8 @@
   (let [alph (set "abc")]
     (partition 4
       ; alphabet regex good bad
-      [alph "abc" ["abc"] ["" "a" "b"]
+      [alph "x*" ["" "x" "xx" "xxxxx"] ["y" "xy" "zx"]
+       alph "abc" ["abc"] ["" "a" "b"]
        alph "a+b" ["ab" "aab" "aaab"] ["b" "aabb" "abc"]
        alph "(b?ac*)+a" ["aaa" "baccca" "aaababaca"] ["bb" "bacbaccc"]
        alph "(b((b|c)*)ab+)?c" ["c" "babc" "bbcbcbcabbbc"] ["" "bab" "bcbccbb"]])))
