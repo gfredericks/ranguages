@@ -59,3 +59,38 @@
         res-matrix-row (first (matrix-power transfer-matrix length))
         accepting-indices (filter #((:accept dfa) (states %)) (range (count states)))]
     (reduce + (map res-matrix-row accepting-indices))))
+
+(defn matching-string-count-below
+  [rang length]
+  (apply + (for [i (range (inc length))] (matching-string-count rang i))))
+
+(defn- suffix-dfa
+  "Returns a dfa (not necessarily minimized) matching strings that are valid
+  suffixes of the given char. All it does is move the starting state forward."
+  [{:keys [start transition] :as dfa} char]
+  (let [char-set (first (filter #(% char) (-> transition (get start) (keys))))]
+    (assoc dfa :start (-> transition (get start) (get char-set)))))
+
+(defn matching-string-at-index
+  "Indexed from 0."
+  ([rang length i]
+    (let [{:keys [transition start] :as dfa} (rc/minimize-dfa (rc/to-dfa rang)),
+          char-sets (sort-by #(apply min (map int %)) (-> transition start keys))]
+      (loop [[char-set & char-sets] char-sets, i i]
+        (let [chars (sort-by int char-set),
+              dfa* (suffix-dfa dfa (first char-set)),
+              string-count (matching-string-count dfa* (dec length)),
+              total-count (* string-count (count char-set))]
+          (if (>= i total-count)
+            (recur char-sets (- i total-count))
+            (let [char-i (quot i string-count)]
+              (if (= length 1)
+                (str (nth chars char-i))
+                (str (nth chars char-i)
+                     (matching-string-at-index dfa* (dec length) (rem i string-count))))))))))
+  ([rang i]
+    (loop [length 0, i i]
+      (let [card (matching-string-count rang length)]
+        (if (< i card)
+          (matching-string-at-index rang length i)
+          (recur (inc length) (- i card)))))))
