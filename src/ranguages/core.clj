@@ -313,7 +313,7 @@
             (nfa-epsilon-closure n start)
             s)))))
   (to-dfa [n]
-    (let [{:keys [transition start] :as nfa} (remove-epsilon-transitions n)]
+    (let [{:keys [transition start accept] :as nfa} (remove-epsilon-transitions n)]
       (loop [upcoming-states #{#{start}},
              transitions {}]
         (if (empty? upcoming-states)
