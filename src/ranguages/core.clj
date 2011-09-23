@@ -206,7 +206,7 @@
           (recur distinguishable*))))))
 
 (defn minimize-dfa
-  [{:keys [start states transition] :as dfa}]
+  [{:keys [start states transition accept] :as dfa}]
   {:post [(sets/subset? (:accept %) (:states %))]}
   (let [reachable-states
           (loop [reachables #{},
@@ -223,6 +223,7 @@
                     (disj next-state))))))]
     (consolidate-states
       (assoc dfa
+             :accept (sets/intersection accept reachable-states)
              :states reachable-states
              :transition (select-keys transition reachable-states)))))
 
