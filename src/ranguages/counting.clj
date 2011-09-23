@@ -39,11 +39,10 @@
           res)
         (matrix-multiply mult mult)))))
 
-(defn matching-string-count
-  [rang length]
-  (let [dfa (rc/minimize-dfa (rc/to-dfa rang)),
-        ; states have to be numbered starting with the start state
-        states (vec (cons (:start dfa) (disj (:states dfa) (:start dfa)))),
+(defn- matching-string-count
+  [dfa length]
+  ; states have to be numbered starting with the start state
+  (let [states (vec (cons (:start dfa) (disj (:states dfa) (:start dfa)))),
         transfer-matrix
           (matrix (count states)
             (fn [i j]
@@ -60,22 +59,34 @@
         accepting-indices (filter #((:accept dfa) (states %)) (range (count states)))]
     (reduce + (map res-matrix-row accepting-indices))))
 
-(defn matching-string-count-below
-  [rang length]
-  (apply + (for [i (range (inc length))] (matching-string-count rang i))))
+; TODO: Optimize with the modified algorithm
+(defn- matching-string-count-below
+  "Actually this is less-than-or-equal. Should rename."
+  [dfa length]
+  (apply + (for [i (range (inc length))] (matching-string-count dfa i))))
 
 (defn- suffix-dfa
-  "Returns a dfa (not necessarily minimized) matching strings that are valid
+  "Returns a dfa matching strings that are valid
   suffixes of the given char. All it does is move the starting state forward."
   [{:keys [start transition] :as dfa} char]
   (let [char-set (first (filter #(% char) (-> transition (get start) (keys))))]
-    (assoc dfa :start (-> transition (get start) (get char-set)))))
+    (rc/minimize-dfa
+      (assoc dfa :start (-> transition (get start) (get char-set))))))
 
-(defn matching-string-at-index
-  "Indexed from 0."
-  ([rang length i]
-    (let [{:keys [transition start] :as dfa} (rc/minimize-dfa (rc/to-dfa rang)),
-          char-sets (sort-by #(apply min (map int %)) (-> transition start keys))]
+(defn- sort-char-sets
+  "Takes a list of sets of characters and returns a list of lists of
+  characters, both in canonical order."
+  [char-sets]
+  (sort-by
+    first
+    (map #(sort-by int %) char-sets)))
+
+(defn- matching-string-at-index*
+  [{:keys [transition accept start] :as dfa} length i]
+  (if (= length 0)
+    (if (and (= i 0) (accept start))
+      "")
+    (let [char-sets (-> transition start keys sort-char-sets)]
       (loop [[char-set & char-sets] char-sets, i i]
         (let [chars (sort-by int char-set),
               dfa* (suffix-dfa dfa (first char-set)),
@@ -87,10 +98,41 @@
               (if (= length 1)
                 (str (nth chars char-i))
                 (str (nth chars char-i)
-                     (matching-string-at-index dfa* (dec length) (rem i string-count))))))))))
-  ([rang i]
+                     (matching-string-at-index* dfa* (dec length) (rem i string-count)))))))))))
+
+; TODO: Optimize the 2-arg part with squaring
+(defn matching-string-at-index
+  "Indexed from 0."
+  [rang i]
+  (let [dfa (rc/minimize-dfa (rc/to-dfa rang))]
     (loop [length 0, i i]
-      (let [card (matching-string-count rang length)]
+      (let [card (matching-string-count dfa length)]
         (if (< i card)
-          (matching-string-at-index rang length i)
+          (matching-string-at-index* dfa length i)
           (recur (inc length) (- i card)))))))
+
+(defn- index-of-matching-string*
+  [{:keys [transition start] :as dfa} s]
+  (if (empty? s)
+    (if (rc/contains? dfa s) 0)
+    (let [char-sets (-> transition start keys sort-char-sets),
+          char (first s),
+          [preceding-char-sets [relevant-char-set & _]] (split-with #(not ((set %) char)) char-sets),
+          preceding-count
+            (apply +
+              (for [pcs preceding-char-sets]
+                (* (count pcs) (matching-string-count (suffix-dfa dfa (first pcs)) (dec (count s)))))),
+          dfa* (suffix-dfa dfa (first relevant-char-set)),
+          dfa*-count (matching-string-count dfa* (dec (count s))),
+          chars-on-same-transition-count (* dfa*-count (count (take-while #(not= % char) relevant-char-set)))]
+      (+ preceding-count
+         chars-on-same-transition-count
+         (index-of-matching-string* dfa* (.substring s 1))))))
+
+(defn index-of-matching-string
+  [rang s]
+  (let [dfa (rc/minimize-dfa (rc/to-dfa rang))]
+    (if (empty? s)
+      (if (rc/contains? dfa s) 0)
+      (let [shorter-strings-count (matching-string-count-below dfa (dec (count s)))]
+        (+ shorter-strings-count (index-of-matching-string* dfa s))))))
