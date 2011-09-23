@@ -207,6 +207,7 @@
 
 (defn minimize-dfa
   [{:keys [start states transition] :as dfa}]
+  {:post [(sets/subset? (:accept %) (:states %))]}
   (let [reachable-states
           (loop [reachables #{},
                  reaching #{start}]
