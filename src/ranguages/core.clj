@@ -161,10 +161,11 @@
                (zipmap
                  (keys transition)
                  (for [t (vals transition)]
-                   (zipmap
-                     (keys t)
-                     (for [v (vals t)]
-                       (if (= v b) a v)))))))))
+                   (simplify-trans-map
+                     (zipmap
+                       (keys t)
+                       (for [v (vals t)]
+                         (if (= v b) a v))))))))))
 
 (defn- transition-dfa
   [{t :transition} state c]
