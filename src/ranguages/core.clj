@@ -2,7 +2,8 @@
   (:require [ranguages.regex-parser :as rrp])
   (:refer-clojure :exclude [contains? reverse])
   (:require [clojure.walk :as wk]
-            [clojure.set :as sets]))
+            [clojure.set :as sets]
+            [clojure.string :as string]))
 
 (def epsilon ::epsilon)
 
@@ -29,6 +30,14 @@
 (defn- doh!
   []
   (throw (new java.lang.UnsupportedOperationException)))
+
+(let [gs (comp keyword (partial gensym "s"))]
+  (defn- new-state
+    [{states :states}]
+    (loop [s (gs)]
+      (if (states s)
+        (recur (gs))
+        s))))
 
 (declare dfa-cartesian-product)
 
@@ -237,7 +246,9 @@
          add-state
          add-transition
          inject-state-machine
-         unify-transition-functions)
+         unify-transition-functions
+         single-accepting-state-nfa
+         parse-regex)
 
 (defn- nfa-transition
   "Returns the set of states that a particular state and character
@@ -357,7 +368,66 @@
                 next-state)
               (assoc transitions next-state trans-fn)))))))
 
-  (to-re [n] (doh!))
+  (to-re [n]
+    (if (empty? (:accept n))
+      ""
+      (let [{:keys [accept start transition states alphabet]} (single-accepting-state-nfa n),
+            accept-state (first accept)]
+        (loop [transition*
+                 (zipmap
+                   (keys transition)
+                   (for [v (vals transition)]
+                     (zipmap
+                       (for [charset (keys v)]
+                         ; TODO: Escape things??
+                         (parse-regex alphabet
+                           (let [s (string/join "|" (disj charset epsilon))]
+                             (if (charset epsilon)
+                               (format "(%s)?" s)
+                               s))))
+                       (vals v))))]
+          (if (= 2 (count transition*))
+            ; TODO: What if accept has outgoing transitions? Check on the single-accepting-state-nfa
+            ;       function to see if this is possible (e.g., if the input to the function already
+            ;       has a single accepting state).
+            (->> transition* start keys (reduce union))
+            (recur
+              (let [next-state (first (remove #{start accept-state} (keys transition*))),
+                    ks (remove #{next-state} (keys transition*)),
+                    self-loop
+                      (if-let [re (reduce (fn ([] nil) ([a b] (union a b)))
+                                          (map key
+                                               (filter
+                                                 (fn [k v] (v next-state))
+                                                 (transition* next-state))))]
+                        (star re)),
+                    uniquify #(assoc % ::unique (gensym))]
+                (zipmap
+                  ks
+                  (for [t (map transition* ks)]
+                    (reduce
+                      (fn [t [re stateset]]
+                        (if (stateset next-state)
+                          (let [t (if (> (count stateset) 1)
+                                    (assoc t (uniquify re) (disj stateset next-state))
+                                    t)]
+                            (reduce
+                              (fn [t [k v]]
+                                (if (not= v #{next-state})
+                                  (assoc t
+                                         (uniquify
+                                           (concatenation
+                                             re
+                                             (if self-loop
+                                               (concatenation self-loop k)
+                                               k)))
+                                         (disj stateset next-state))
+                                  t))
+                              t
+                              (transition* next-state)))
+                          (assoc t re stateset)))
+                      {}
+                      t))))))))))
   (to-nfa [n] n)
   (reverse [n] (doh!))
   (star [n]
@@ -406,6 +476,29 @@
                          (map #(set (map state-map %)) (vals inner-transition-map))))))
            (state-map start)
            (set (map state-map accept))))))
+
+(defn- single-accepting-state-nfa
+  [{:keys [accept transition states alphabet] :as nfa}]
+  (if (= 1 (count accept))
+    nfa
+    (let [accept-state (new-state nfa)]
+      (assoc nfa
+             :accept #{accept-state},
+             :states (conj states accept-state),
+             :transition
+               (merge
+                 {accept-state {(conj alphabet epsilon) #{}}}
+                 (zipmap
+                   (keys transition)
+                   (for [v (vals transition)]
+                     (if (v #{epsilon})
+                       (update-in v [#{epsilon}] conj accept-state)
+                       (let [with-eps (first (filter #(% epsilon) (keys v))),
+                             with-eps-val (v with-eps)]
+                         (-> v
+                           (dissoc with-eps)
+                           (assoc (disj with-eps epsilon) with-eps-val)
+                           (assoc #{epsilon} (conj with-eps-val accept-state))))))))))))
 
 ; NFA building functions
 (defn empty-nfa
