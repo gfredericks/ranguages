@@ -405,9 +405,10 @@
                     (reduce
                       (fn [t [re stateset]]
                         (if (stateset next-state)
-                          (let [t (if (> (count stateset) 1)
-                                    (assoc t (uniquify re) (disj stateset next-state))
-                                    t)]
+                          (let [stateset-wo (disj stateset next-state),
+                                t (if (empty? stateset-wo)
+                                    t
+                                    (assoc t (uniquify re) stateset-wo))]
                             (reduce
                               (fn [t [k v]]
                                 (if (not= v #{next-state})
@@ -418,11 +419,11 @@
                                              (if self-loop
                                                (concatenation self-loop k)
                                                k)))
-                                         (disj stateset next-state))
+                                         (disj v next-state))
                                   t))
                               t
-                              (transition* next-state)))
-                          (assoc t re stateset)))
+                              (transition* next-state))))
+                          (assoc t re stateset))
                       {}
                       t))))))))))
   (to-nfa [n] n)
