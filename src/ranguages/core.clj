@@ -2,7 +2,8 @@
   (:require [ranguages.regex-parser :as rrp])
   (:refer-clojure :exclude [contains? reverse])
   (:require [clojure.walk :as wk]
-            [clojure.set :as sets]))
+            [clojure.set :as sets]
+            [clojure.string :as string]))
 
 (def epsilon ::epsilon)
 
@@ -30,7 +31,15 @@
   []
   (throw (new java.lang.UnsupportedOperationException)))
 
-(declare dfa-cartesian-product)
+(let [gs (comp keyword (partial gensym "s"))]
+  (defn- new-state
+    [{states :states}]
+    (loop [s (gs)]
+      (if (states s)
+        (recur (gs))
+        s))))
+
+(declare dfa-cartesian-product construct-nfa regex-to-s)
 
 ; Represents a strict DFA, where every state/char maps to an
 ; existing state (i.e., there are no implicit transitions to
@@ -62,8 +71,19 @@
           start
           s))))
   (to-dfa [d] d)
-  (to-re [d] (doh!))
-  (to-nfa [d] (doh!))
+  (to-re [d] (to-re (to-nfa d)))
+  (to-nfa [d]
+    (construct-nfa
+      states
+      alphabet
+      (zipmap (keys transition)
+              (for [t (vals transition)]
+                (assoc
+                  (zipmap (keys t) (map hash-set (vals t)))
+                  #{epsilon}
+                  #{})))
+      start
+      accept))
   (reverse [d] (doh!))
   (star [d] (doh!))
   (union [d1 d2]
@@ -237,7 +257,9 @@
          add-state
          add-transition
          inject-state-machine
-         unify-transition-functions)
+         unify-transition-functions
+         isolate-nfa-start-and-accept-states
+         parse-regex)
 
 (defn- nfa-transition
   "Returns the set of states that a particular state and character
@@ -357,7 +379,75 @@
                 next-state)
               (assoc transitions next-state trans-fn)))))))
 
-  (to-re [n] (doh!))
+  (to-re [n]
+    (if (empty? (:accept n))
+      ""
+      (let [{:keys [accept start transition states alphabet] :as doofus} (isolate-nfa-start-and-accept-states n),
+            accept-state (first accept),
+            regex-transition
+              (zipmap
+                (keys transition)
+                (for [v (vals transition)]
+                  (zipmap
+                    (for [charset (keys v)]
+                      ; TODO: Escape things??
+                      (parse-regex alphabet
+                        (let [s (string/join "|" (seq (disj charset epsilon)))]
+                          (cond
+                            (= charset #{epsilon})
+                              ""
+                            (charset epsilon)
+                              (format "(%s)?" s)
+                            :else
+                              s))))
+                    (vals v))))
+            uniquify #(assoc % ::unique (gensym)),
+            combine-regexes
+              (fn [to self-loop from]
+                (uniquify
+                  (concatenation
+                    to
+                    (if self-loop (concatenation (star self-loop) from) from)))),
+            remove-intermediate-state
+              (fn [transition*]
+                (let [next-state (first (remove #{start accept-state} (keys transition*))),
+                      ks (remove #{next-state} (keys transition*)),
+                      self-loop
+                        (reduce (fn ([] nil) ([a b] (union a b)))
+                          (map key
+                            (filter
+                              (fn [[k v]] (v next-state))
+                              (transition* next-state))))]
+                  (zipmap
+                    ks
+                    (for [t (map transition* ks)]
+                      (reduce
+                        (fn [t [re stateset]]
+                          (if (stateset next-state)
+                            (let [stateset-wo (disj stateset next-state),
+                                  t (if (empty? stateset-wo)
+                                      t
+                                      (assoc t (uniquify re) stateset-wo))]
+                              (reduce
+                                (fn [t [k v]]
+                                  (if (not= v #{next-state})
+                                    (assoc t (combine-regexes re self-loop k)
+                                             (disj v next-state))
+                                    t))
+                                t
+                                (transition* next-state)))
+                            (assoc t re stateset)))
+                        {}
+                        t)))))]
+        (loop [transition* regex-transition]
+          (if (= 2 (count transition*))
+            (let [start-to-accept
+                    (->> transition*
+                         start
+                         keys
+                         (filter #(-> transition* start (get %) (clojure.core/contains? accept-state))))]
+              (reduce union start-to-accept))
+            (recur (remove-intermediate-state transition*)))))))
   (to-nfa [n] n)
   (reverse [n] (doh!))
   (star [n]
@@ -406,6 +496,35 @@
                          (map #(set (map state-map %)) (vals inner-transition-map))))))
            (state-map start)
            (set (map state-map accept))))))
+
+(defn- isolate-nfa-start-and-accept-states
+  "Returns an equivalent nfa with a single start state with no
+  incoming transitions and a single accepting state with no
+  outgoing transitions."
+  [{:keys [accept transition states alphabet start] :as nfa}]
+  (let [start-state (new-state nfa),
+        accept-state (new-state nfa)]
+    (assoc nfa
+           :start start-state,
+           :accept #{accept-state},
+           :states (conj states accept-state start-state),
+           :transition
+             (merge
+               {start-state {alphabet #{}, #{epsilon} #{start}}}
+               {accept-state {(conj alphabet epsilon) #{}}}
+               (zipmap
+                 (keys transition)
+                 (for [[k v] transition]
+                   (if (accept k)
+                     (if (v #{epsilon})
+                       (update-in v [#{epsilon}] conj accept-state)
+                       (let [with-eps (first (filter #(% epsilon) (keys v))),
+                             with-eps-val (v with-eps)]
+                         (-> v
+                           (dissoc with-eps)
+                           (assoc (disj with-eps epsilon) with-eps-val)
+                           (assoc #{epsilon} (conj with-eps-val accept-state)))))
+                     v)))))))
 
 ; NFA building functions
 (defn empty-nfa
@@ -535,6 +654,10 @@
                (sets/union (:accept inner-machine)))
              out-accept)))))
 
+(defn construct-nfa
+  "This only exists because one of the DFA functions needs to create an NFA."
+  [a b c d e] (new NFA a b c d e))
+
 ; Second argument should be one of the following:
 ;   - a set of literals
 ;   - [:star <RE>]
@@ -544,6 +667,7 @@
 ;
 (defrecord Regex [alphabet regex-parse-tree]
   IRanguage
+  (contains? [r s] (contains? (to-nfa r) s))
   (to-dfa [r] (-> r to-nfa to-dfa))
   (to-re [r] r)
   (to-nfa [r]
@@ -553,6 +677,8 @@
           (add-state :b)
           (add-transition :a regex-parse-tree #{:b})
           (add-accepting-state :b))
+      (= epsilon regex-parse-tree)
+        (-> (empty-nfa alphabet :a) (add-accepting-state :a))
       (= :star (first regex-parse-tree))
         (-> regex-parse-tree second to-nfa star)
       (= :qmark (first regex-parse-tree))
@@ -565,11 +691,40 @@
         (->> regex-parse-tree rest (map to-nfa) (reduce concatenation))
       :else (throw (new Exception (str "What's wrong here? -- " (pr-str regex-parse-tree))))))
   (reverse [r] (doh!))
-  (star [r] (doh!))
-  (union [r1 r2] (doh!))
+  (star [r]
+    (new Regex alphabet [:star r]))
+  (union [r1 r2]
+    (new Regex alphabet [:or r1 r2]))
   (intersection [r1 r2] (doh!))
-  (concatenation [r1 r2] (doh!))
+  (concatenation [r1 r2]
+    (new Regex alphabet [:concat r1 r2]))
   (difference [r1 r2] (doh!)))
+
+(defn regex-to-s
+  [re]
+  (let [rpt (:regex-parse-tree re),
+        hd (if (sequential? rpt) (first rpt))]
+    (cond
+      (= epsilon rpt)
+        ""
+      (set? rpt)
+        (cond
+          (empty? rpt)
+            (throw (new Exception "No regex for empty language"))
+          (= 1 (count rpt))
+            (str (first rpt))
+          :else
+            (str "(" (string/join "|" (seq rpt)) ")"))
+      (= :star hd)
+        (str "(" (regex-to-s (second rpt)) ")*")
+      (= :qmark hd)
+        (str "(" (regex-to-s (second rpt)) ")?")
+      (= :or hd)
+        (str "(" (string/join "|" (map regex-to-s (rest rpt))) ")")
+      (= :concat hd)
+        (apply str (map regex-to-s (rest rpt)))
+      :else
+        (throw (new Exception "This is weird.")))))
 
 (defn parse-regex
   [alphabet re]
@@ -577,6 +732,7 @@
     (fn [x]
       (cond
         (set? x) (new Regex alphabet x)
+        (= :epsilon x) (new Regex alphabet epsilon)
         (keyword? x) x
         (char? x) x
         (sequential? x) (new Regex alphabet (cons (first x) (rest x)))))
