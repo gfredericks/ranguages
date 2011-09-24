@@ -39,7 +39,7 @@
         (recur (gs))
         s))))
 
-(declare dfa-cartesian-product construct-nfa)
+(declare dfa-cartesian-product construct-nfa regex-to-s)
 
 ; Represents a strict DFA, where every state/char maps to an
 ; existing state (i.e., there are no implicit transitions to
@@ -382,7 +382,7 @@
   (to-re [n]
     (if (empty? (:accept n))
       ""
-      (let [{:keys [accept start transition states alphabet]} (isolate-nfa-start-and-accept-states n),
+      (let [{:keys [accept start transition states alphabet] :as doofus} (isolate-nfa-start-and-accept-states n),
             accept-state (first accept),
             regex-transition
               (zipmap
@@ -441,7 +441,12 @@
                         t)))))]
         (loop [transition* regex-transition]
           (if (= 2 (count transition*))
-            (->> transition* start keys (reduce union))
+            (let [start-to-accept
+                    (->> transition*
+                         start
+                         keys
+                         (filter #(-> transition* start (get %) (clojure.core/contains? accept-state))))]
+              (reduce union start-to-accept))
             (recur (remove-intermediate-state transition*)))))))
   (to-nfa [n] n)
   (reverse [n] (doh!))
@@ -509,15 +514,17 @@
                {accept-state {(conj alphabet epsilon) #{}}}
                (zipmap
                  (keys transition)
-                 (for [v (vals transition)]
-                   (if (v #{epsilon})
-                     (update-in v [#{epsilon}] conj accept-state)
-                     (let [with-eps (first (filter #(% epsilon) (keys v))),
-                           with-eps-val (v with-eps)]
-                       (-> v
-                         (dissoc with-eps)
-                         (assoc (disj with-eps epsilon) with-eps-val)
-                         (assoc #{epsilon} (conj with-eps-val accept-state)))))))))))
+                 (for [[k v] transition]
+                   (if (accept k)
+                     (if (v #{epsilon})
+                       (update-in v [#{epsilon}] conj accept-state)
+                       (let [with-eps (first (filter #(% epsilon) (keys v))),
+                             with-eps-val (v with-eps)]
+                         (-> v
+                           (dissoc with-eps)
+                           (assoc (disj with-eps epsilon) with-eps-val)
+                           (assoc #{epsilon} (conj with-eps-val accept-state)))))
+                     v)))))))
 
 ; NFA building functions
 (defn empty-nfa
@@ -692,6 +699,32 @@
   (concatenation [r1 r2]
     (new Regex alphabet [:concat r1 r2]))
   (difference [r1 r2] (doh!)))
+
+(defn regex-to-s
+  [re]
+  (let [rpt (:regex-parse-tree re),
+        hd (if (sequential? rpt) (first rpt))]
+    (cond
+      (= epsilon rpt)
+        ""
+      (set? rpt)
+        (cond
+          (empty? rpt)
+            (throw (new Exception "No regex for empty language"))
+          (= 1 (count rpt))
+            (str (first rpt))
+          :else
+            (str "(" (string/join "|" (seq rpt)) ")"))
+      (= :star hd)
+        (str "(" (regex-to-s (second rpt)) ")*")
+      (= :qmark hd)
+        (str "(" (regex-to-s (second rpt)) ")?")
+      (= :or hd)
+        (str "(" (string/join "|" (map regex-to-s (rest rpt))) ")")
+      (= :concat hd)
+        (apply str (map regex-to-s (rest rpt)))
+      :else
+        (throw (new Exception "This is weird.")))))
 
 (defn parse-regex
   [alphabet re]
