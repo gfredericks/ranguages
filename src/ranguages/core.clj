@@ -247,7 +247,7 @@
          add-transition
          inject-state-machine
          unify-transition-functions
-         single-accepting-state-nfa
+         isolate-nfa-start-and-accept-states
          parse-regex)
 
 (defn- nfa-transition
@@ -371,7 +371,7 @@
   (to-re [n]
     (if (empty? (:accept n))
       ""
-      (let [{:keys [accept start transition states alphabet]} (single-accepting-state-nfa n),
+      (let [{:keys [accept start transition states alphabet]} (isolate-nfa-start-and-accept-states n),
             accept-state (first accept)]
         (loop [transition*
                  (zipmap
@@ -387,9 +387,6 @@
                                s))))
                        (vals v))))]
           (if (= 2 (count transition*))
-            ; TODO: What if accept has outgoing transitions? Check on the single-accepting-state-nfa
-            ;       function to see if this is possible (e.g., if the input to the function already
-            ;       has a single accepting state).
             (->> transition* start keys (reduce union))
             (recur
               (let [next-state (first (remove #{start accept-state} (keys transition*))),
@@ -477,14 +474,20 @@
            (state-map start)
            (set (map state-map accept))))))
 
-(defn- single-accepting-state-nfa
-  [{:keys [accept transition states alphabet] :as nfa}]
-  (let [accept-state (new-state nfa)]
+(defn- isolate-nfa-start-and-accept-states
+  "Returns an equivalent nfa with a single start state with no
+  incoming transitions and a single accepting state with no
+  outgoing transitions."
+  [{:keys [accept transition states alphabet start] :as nfa}]
+  (let [start-state (new-state nfa),
+        accept-state (new-state nfa)]
     (assoc nfa
+           :start start-state,
            :accept #{accept-state},
-           :states (conj states accept-state),
+           :states (conj states accept-state start-state),
            :transition
              (merge
+               {start-state {alphabet #{}, #{epsilon} #{start}}}
                {accept-state {(conj alphabet epsilon) #{}}}
                (zipmap
                  (keys transition)
