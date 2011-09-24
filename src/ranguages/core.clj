@@ -372,60 +372,62 @@
     (if (empty? (:accept n))
       ""
       (let [{:keys [accept start transition states alphabet]} (isolate-nfa-start-and-accept-states n),
-            accept-state (first accept)]
-        (loop [transition*
-                 (zipmap
-                   (keys transition)
-                   (for [v (vals transition)]
-                     (zipmap
-                       (for [charset (keys v)]
-                         ; TODO: Escape things??
-                         (parse-regex alphabet
-                           (let [s (string/join "|" (seq (disj charset epsilon)))]
-                             (if (charset epsilon)
-                               (format "(%s)?" s)
-                               s))))
-                       (vals v))))]
+            accept-state (first accept),
+            regex-transition
+              (zipmap
+                (keys transition)
+                (for [v (vals transition)]
+                  (zipmap
+                    (for [charset (keys v)]
+                      ; TODO: Escape things??
+                      (parse-regex alphabet
+                        (let [s (string/join "|" (seq (disj charset epsilon)))]
+                          (if (charset epsilon)
+                            (format "(%s)?" s)
+                            s))))
+                    (vals v))))
+            uniquify #(assoc % ::unique (gensym)),
+            combine-regexes
+              (fn [to self-loop from]
+                (uniquify
+                  (concatenation
+                    to
+                    (if self-loop (concatenation (star self-loop) from) from)))),
+            remove-intermediate-state
+              (fn [transition*]
+                (let [next-state (first (remove #{start accept-state} (keys transition*))),
+                      ks (remove #{next-state} (keys transition*)),
+                      self-loop
+                        (reduce (fn ([] nil) ([a b] (union a b)))
+                          (map key
+                            (filter
+                              (fn [[k v]] (v next-state))
+                              (transition* next-state))))]
+                  (zipmap
+                    ks
+                    (for [t (map transition* ks)]
+                      (reduce
+                        (fn [t [re stateset]]
+                          (if (stateset next-state)
+                            (let [stateset-wo (disj stateset next-state),
+                                  t (if (empty? stateset-wo)
+                                      t
+                                      (assoc t (uniquify re) stateset-wo))]
+                              (reduce
+                                (fn [t [k v]]
+                                  (if (not= v #{next-state})
+                                    (assoc t (combine-regexes re self-loop k)
+                                             (disj v next-state))
+                                    t))
+                                t
+                                (transition* next-state)))
+                            (assoc t re stateset)))
+                        {}
+                        t)))))]
+        (loop [transition* regex-transition]
           (if (= 2 (count transition*))
             (->> transition* start keys (reduce union))
-            (recur
-              (let [next-state (first (remove #{start accept-state} (keys transition*))),
-                    ks (remove #{next-state} (keys transition*)),
-                    self-loop
-                      (if-let [re (reduce (fn ([] nil) ([a b] (union a b)))
-                                          (map key
-                                               (filter
-                                                 (fn [[k v]] (v next-state))
-                                                 (transition* next-state))))]
-                        (star re)),
-                    uniquify #(assoc % ::unique (gensym))]
-                (zipmap
-                  ks
-                  (for [t (map transition* ks)]
-                    (reduce
-                      (fn [t [re stateset]]
-                        (if (stateset next-state)
-                          (let [stateset-wo (disj stateset next-state),
-                                t (if (empty? stateset-wo)
-                                    t
-                                    (assoc t (uniquify re) stateset-wo))]
-                            (reduce
-                              (fn [t [k v]]
-                                (if (not= v #{next-state})
-                                  (assoc t
-                                         (uniquify
-                                           (concatenation
-                                             re
-                                             (if self-loop
-                                               (concatenation self-loop k)
-                                               k)))
-                                         (disj v next-state))
-                                  t))
-                              t
-                              (transition* next-state))))
-                          (assoc t re stateset))
-                      {}
-                      t))))))))))
+            (recur (remove-intermediate-state transition*)))))))
   (to-nfa [n] n)
   (reverse [n] (doh!))
   (star [n]
