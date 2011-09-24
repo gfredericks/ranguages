@@ -39,7 +39,7 @@
         (recur (gs))
         s))))
 
-(declare dfa-cartesian-product)
+(declare dfa-cartesian-product construct-nfa)
 
 ; Represents a strict DFA, where every state/char maps to an
 ; existing state (i.e., there are no implicit transitions to
@@ -71,8 +71,19 @@
           start
           s))))
   (to-dfa [d] d)
-  (to-re [d] (doh!))
-  (to-nfa [d] (doh!))
+  (to-re [d] (to-re (to-nfa d)))
+  (to-nfa [d]
+    (construct-nfa
+      states
+      alphabet
+      (zipmap (keys transition)
+              (for [t (vals transition)]
+                (assoc
+                  (zipmap (keys t) (map hash-set (vals t)))
+                  #{epsilon}
+                  #{})))
+      start
+      accept))
   (reverse [d] (doh!))
   (star [d] (doh!))
   (union [d1 d2]
@@ -382,9 +393,13 @@
                       ; TODO: Escape things??
                       (parse-regex alphabet
                         (let [s (string/join "|" (seq (disj charset epsilon)))]
-                          (if (charset epsilon)
-                            (format "(%s)?" s)
-                            s))))
+                          (cond
+                            (= charset #{epsilon})
+                              ""
+                            (charset epsilon)
+                              (format "(%s)?" s)
+                            :else
+                              s))))
                     (vals v))))
             uniquify #(assoc % ::unique (gensym)),
             combine-regexes
@@ -631,6 +646,10 @@
                (disj outer-state)
                (sets/union (:accept inner-machine)))
              out-accept)))))
+
+(defn construct-nfa
+  "This only exists because one of the DFA functions needs to create an NFA."
+  [a b c d e] (new NFA a b c d e))
 
 ; Second argument should be one of the following:
 ;   - a set of literals

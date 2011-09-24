@@ -153,4 +153,4 @@
             nfa (to-nfa re)]
         (is (= b (contains? re s)
                  (contains? nfa s)
-                 (contains? (to-re nfa) s)))))))
+                 (contains? (-> nfa to-dfa minimize-dfa to-re) s)))))))
