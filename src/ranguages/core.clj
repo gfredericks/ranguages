@@ -381,7 +381,7 @@
                        (for [charset (keys v)]
                          ; TODO: Escape things??
                          (parse-regex alphabet
-                           (let [s (string/join "|" (disj charset epsilon))]
+                           (let [s (string/join "|" (seq (disj charset epsilon)))]
                              (if (charset epsilon)
                                (format "(%s)?" s)
                                s))))
@@ -398,7 +398,7 @@
                       (if-let [re (reduce (fn ([] nil) ([a b] (union a b)))
                                           (map key
                                                (filter
-                                                 (fn [k v] (v next-state))
+                                                 (fn [[k v]] (v next-state))
                                                  (transition* next-state))))]
                         (star re)),
                     uniquify #(assoc % ::unique (gensym))]
@@ -479,26 +479,24 @@
 
 (defn- single-accepting-state-nfa
   [{:keys [accept transition states alphabet] :as nfa}]
-  (if (= 1 (count accept))
-    nfa
-    (let [accept-state (new-state nfa)]
-      (assoc nfa
-             :accept #{accept-state},
-             :states (conj states accept-state),
-             :transition
-               (merge
-                 {accept-state {(conj alphabet epsilon) #{}}}
-                 (zipmap
-                   (keys transition)
-                   (for [v (vals transition)]
-                     (if (v #{epsilon})
-                       (update-in v [#{epsilon}] conj accept-state)
-                       (let [with-eps (first (filter #(% epsilon) (keys v))),
-                             with-eps-val (v with-eps)]
-                         (-> v
-                           (dissoc with-eps)
-                           (assoc (disj with-eps epsilon) with-eps-val)
-                           (assoc #{epsilon} (conj with-eps-val accept-state))))))))))))
+  (let [accept-state (new-state nfa)]
+    (assoc nfa
+           :accept #{accept-state},
+           :states (conj states accept-state),
+           :transition
+             (merge
+               {accept-state {(conj alphabet epsilon) #{}}}
+               (zipmap
+                 (keys transition)
+                 (for [v (vals transition)]
+                   (if (v #{epsilon})
+                     (update-in v [#{epsilon}] conj accept-state)
+                     (let [with-eps (first (filter #(% epsilon) (keys v))),
+                           with-eps-val (v with-eps)]
+                       (-> v
+                         (dissoc with-eps)
+                         (assoc (disj with-eps epsilon) with-eps-val)
+                         (assoc #{epsilon} (conj with-eps-val accept-state)))))))))))
 
 ; NFA building functions
 (defn empty-nfa
@@ -637,6 +635,7 @@
 ;
 (defrecord Regex [alphabet regex-parse-tree]
   IRanguage
+  (contains? [r s] (contains? (to-nfa r) s))
   (to-dfa [r] (-> r to-nfa to-dfa))
   (to-re [r] r)
   (to-nfa [r]
@@ -646,6 +645,8 @@
           (add-state :b)
           (add-transition :a regex-parse-tree #{:b})
           (add-accepting-state :b))
+      (= epsilon regex-parse-tree)
+        (-> (empty-nfa alphabet :a) (add-accepting-state :a))
       (= :star (first regex-parse-tree))
         (-> regex-parse-tree second to-nfa star)
       (= :qmark (first regex-parse-tree))
@@ -658,10 +659,13 @@
         (->> regex-parse-tree rest (map to-nfa) (reduce concatenation))
       :else (throw (new Exception (str "What's wrong here? -- " (pr-str regex-parse-tree))))))
   (reverse [r] (doh!))
-  (star [r] (doh!))
-  (union [r1 r2] (doh!))
+  (star [r]
+    (new Regex alphabet [:star r]))
+  (union [r1 r2]
+    (new Regex alphabet [:or r1 r2]))
   (intersection [r1 r2] (doh!))
-  (concatenation [r1 r2] (doh!))
+  (concatenation [r1 r2]
+    (new Regex alphabet [:concat r1 r2]))
   (difference [r1 r2] (doh!)))
 
 (defn parse-regex
@@ -670,6 +674,7 @@
     (fn [x]
       (cond
         (set? x) (new Regex alphabet x)
+        (= :epsilon x) (new Regex alphabet epsilon)
         (keyword? x) x
         (char? x) x
         (sequential? x) (new Regex alphabet (cons (first x) (rest x)))))

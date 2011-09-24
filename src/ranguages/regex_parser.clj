@@ -68,12 +68,14 @@
         (cons :concat mfs)))))
 
 (def expression
-  (semantics
-    (conc tterm (rep* (conc (lit :or) tterm)))
-    (fn [[first-term other-terms]]
-      (if (empty? other-terms)
-        first-term
-        (list* :or first-term (map second other-terms))))))
+  (alt
+    (semantics
+      (conc tterm (rep* (conc (lit :or) tterm)))
+      (fn [[first-term other-terms]]
+        (if (empty? other-terms)
+          first-term
+          (list* :or first-term (map second other-terms)))))
+    (constant-semantics emptiness :epsilon)))
 
 
 (def reggie expression)

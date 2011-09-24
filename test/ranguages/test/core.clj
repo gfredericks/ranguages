@@ -12,7 +12,9 @@
   (let [alph (set "abc")]
     (partition 4
       ; alphabet regex good bad
-      [alph "b*" ["" "b" "bb" "bbbbb"] ["c" "bc" "ab"]
+      [alph "" [""] ["a" "b" "c" "abc"]
+       alph "()" [""] ["a" "b" "c" "abc"]
+       alph "b*" ["" "b" "bb" "bbbbb"] ["c" "bc" "ab"]
        alph "abc" ["abc"] ["" "a" "b"]
        alph "a+b" ["ab" "aab" "aaab"] ["b" "aabb" "abc"]
        alph "(b?ac*)+a" ["aaa" "baccca" "aaababaca"] ["bb" "bacbaccc"]
@@ -143,3 +145,12 @@
        "....." ".*zzzz.*" "xyzy"       false
        "....." ".*zzzz.*" "zzzz"       true
        "....." ".*zzzz.*" "xyzzzzzzzx" true))
+
+(deftest nfa-to-re-test
+  (test-regex-examples
+    (fn [alph regex b s]
+      (let [re (parse-regex alph regex),
+            nfa (to-nfa re)]
+        (is (= b (contains? re s)
+                 (contains? nfa s)
+                 (contains? (to-re nfa) s)))))))
