@@ -17,6 +17,8 @@
        alph "b*" ["" "b" "bb" "bbbbb"] ["c" "bc" "ab"]
        alph "abc" ["abc"] ["" "a" "b"]
        alph "a+b" ["ab" "aab" "aaab"] ["b" "aabb" "abc"]
+       alph "ab{4,}c?" ["abbbb" "abbbbc" "abbbbbbb" "abbbbbbbbc"]
+                       ["abb" "bbbbb" "abbbbbcb" ""]
        alph "(b?ac*)+a" ["aaa" "baccca" "aaababaca"] ["bb" "bacbaccc"]
        alph "(b((b|c)*)ab+)?c" ["c" "babc" "bbcbcbcabbbc"] ["" "bab" "bcbccbb"]])))
 
