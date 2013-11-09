@@ -1,4 +1,4 @@
 (defproject ranguages "1.0.0-SNAPSHOT"
-  :description "FIXME: write description"
-  :dependencies [[org.clojure/clojure "1.2.1"]
+  :description "Regular Language Manipulation in Clojure"
+  :dependencies [[org.clojure/clojure "1.5.1"]
                  [fnparse "2.2.7"]])
